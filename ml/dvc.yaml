@@ -54,9 +54,12 @@ stages:
     deps:
       - artifacts/pose_seq
       - data/features.npz
+      - data/labels.csv
       - src/tennis_ml/export.py
+      - src/tennis_ml/evaluation.py
     params:
       - version
+      - dataset.seed
       - pose_seq.target_precision
     outs:
       - export/pose_seq

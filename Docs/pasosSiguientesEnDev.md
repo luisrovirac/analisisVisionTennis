@@ -1,132 +1,214 @@
+# Pasos siguientes en dev
 
-Con las fases 0–4 ya construidas, lo que queda no es añadir más arquitectura, sino **cerrar los cuatro frentes que separan tu repositorio de un sistema validado y operativo**. El orden importa: cada paso desbloquea el siguiente.
+Con las fases 0–4 construidas, lo que queda no es añadir arquitectura, sino **cerrar los frentes que separan el repositorio de un sistema validado y operativo**. El orden importa: cada paso desbloquea el siguiente.
 
-### 🧹 Paso 0: Sanear el entorno de desarrollo (prerrequisito)
+**Estado a 2026-11-16**
 
-Los dos problemas que detectaste no son del proyecto, pero bloquean la ejecución local y el CI si no se corrigen.
-
-- **Visual C++ Redistributable 14.36:** `torch`, `onnx` y `onnxruntime` recientes no cargan en Windows con esa versión. Instala el redistributable actual. Mientras tanto, todo el ML va en Docker, lo cual es correcto, pero el CI en Linux no debería tener este problema.
-- **PATH con comilla suelta (`D:\Program Files\src\flutter\bin"`):** Rompe los tests de Gradle. Elimínala del PATH del sistema, no solo del comando puntual. Sin esto, el job de móvil en CI puede fallar de forma intermitente.
-
-**Criterio de salida:** `pytest` y `gradle test` corren en local sin parches manuales en el comando.
-
----
-
-### 🔀 Paso 1: Primer commit y CI en verde
-
-Tienes cuatro jobs definidos (API, worker, ML, móvil) pero sin remoto ni ejecuciones reales. Este paso valida que la infraestructura que construiste es reproducible fuera de tu máquina.
-
-- **Haz el primer commit** con todo el estado actual (fases 0–4). Incluye `.gitattributes` y los contratos JSON. No commitees datos de THETIS ni artefactos de MLflow; esos van en DVC o en el registro de modelos.
-- **Crea el remoto** y observa la primera ejecución del CI. Es probable que aparezcan fallos de dependencias o de versiones de runtime; resuélvelos ahora, antes de introducir el modelo real, para aislar la causa.
-- **Para el job de iOS**, GitHub Actions necesita un runner `macos-latest` porque el xcframework solo se enlaza en macOS. Los runners macOS cuestan aproximadamente 10 veces más por minuto que los de Ubuntu, pero son inevitables para compilar iOS. El código compartido ya declara los targets; lo que falta es la app y el login, que requieren Mac o un runner macOS en CI.
-
-**Criterio de salida:** Los cuatro jobs pasan en verde en el remoto. El de iOS puede limitarse a compilar el módulo `shared` en macOS si la app aún no está lista.
+| Paso | Estado |
+|---|---|
+| 0. Sanear entorno | ✅ Cerrado |
+| 1. Primer commit + CI verde | ✅ Cerrado |
+| 2. THETIS + `dvc repro` (dataset + entrenamiento) | ✅ Cerrado: `dvc.lock` generado, `dvc push` (1,980 ficheros), `stroke-pose-seq` v2 en MLflow |
+| 3. Evaluar y decidir publicación | 🔴 No publicar: macro-F1 0.759 (objetivo 0.90), F1 `other` 0.609; supera a logreg (0.625) |
+| 4. Publicar y activar la clasificación automática | ⏳ |
+| 5. Android en emulador/dispositivo | ⏳ |
+| 6. iOS | ⏸️ Fuera de alcance en dev/staging |
 
 ---
 
-### 🎾 Paso 2: THETIS, el dataset real (desbloquea todo lo demás)
+### 🧹 Paso 0: Sanear el entorno de desarrollo — ✅ cerrado
 
-Sin un modelo real, el worker sigue dependiendo de que el usuario declare el golpe. THETIS es el punto de partida porque es el dataset público con el que se han reportado resultados comparables en la literatura reciente.
+- ✅ **Visual C++ Redistributable:** actualizado de 14.36 a **14.44.35211** (`msvcp140.dll` y `vcruntime140.dll` en 14.44). `torch` y `onnxruntime` ya importan en local sin error de DLL.
+- ✅ **PATH con comillas sueltas:** corregido en el PATH de usuario el 2026-11-16. `gradlew test` en `mobile/` pasa sin parches (las terminales abiertas antes del cambio conservan el PATH viejo).
 
-**Qué descargar y cómo organizarlo:**
-
-THETIS contiene **1,980 clips RGB** (`.avi`) distribuidos uniformemente en **12 clases** de golpes (forehand flat, open-stance, slice, volley; revés a una y dos manos, slice, volley; tres tipos de saque y smash). Los clips duran entre 2 y 5 segundos y fueron grabados en interior con punto de vista fijo. La estructura de directorios del repositorio ya está organizada por tipo de video y por acción; para el clasificador necesitas el directorio `Video_RGB`, con subdirectorios por clase y archivos con el formato `{actor}_{action}_{sequence}.avi`.
-
-Coloca los clips en `ml/data/raw/thetis/Video_RGB/`, respetando la estructura de subdirectorios por clase.
-
-**Sobre los splits:** La partición estándar para THETIS RGB es **70:20:10**, con **1,386 clips para entrenamiento, 396 para validación y 198 para test**. Si tu pipeline de `ml/` ya espera una estructura concreta, adáptala a esta proporción.
-
-**Ejecuta `dvc repro export_pose_seq`** una vez colocado el dataset. Esto reutiliza el código de pose y de características del worker, así que las secuencias de pose que genere el pipeline de ML serán **exactamente las mismas** que las que el worker calcula en producción. Esa es la garantía de que entrenamiento y servicio no divergen.
-
-**Criterio de salida:** `dvc repro` completa y el hash del dataset en `dvc.lock` coincide con el contenido real de `ml/data/raw/thetis`.
+**Criterio de salida:** cumplido. `pytest` (en el contenedor de ML) y `gradlew test` corren sin parches manuales en el comando.
 
 ---
 
-### 🧠 Paso 3: Entrenar y validar el clasificador (el objetivo es macro-F1 ≥ 0.90)
+### 🔀 Paso 1: Primer commit y CI en verde — ✅ cerrado
 
-Con las secuencias de pose exportadas, ejecuta el pipeline de entrenamiento. Tu configuración ya permite elegir y combinar clasificadores mediante `STROKE_CLASSIFIERS` y `STROKE_COMBINER` (`first`, `cascade`, `vote`, `verify`).
+- Commit `2f67d7a` en `origin/main`. Incluye `.gitattributes` y los contratos JSON (`contracts/*.schema.json` + fixtures). No incluye datos de THETIS, `mlruns/`, `mlartifacts/`, `.env` ni `local.properties`. Los únicos `.onnx` versionados son dos fixtures de test de menos de 400 bytes.
+- Primera ejecución del CI: **api, worker, ml y mobile en verde** (runners Ubuntu).
+- **iOS no tiene job**, por decisión: en dev y staging solo Android. Los runners macOS cuestan unas 10 veces más por minuto y la app iOS no existe todavía (ver Paso 6).
 
-**Qué esperar y cómo interpretarlo:**
+**Criterio de salida:** cumplido.
 
-El macro-F1 de **0.90 en THETIS es alcanzable, pero no trivial**. Los benchmarks recientes dan contexto: un sistema de diagnóstico de errores en seis clases reporta un macro-F1 de **0.913**; un modelo de reconocimiento de fases alcanza **94.8%** de macro-F1 en su tarea, y ese mismo sistema mantiene **92.4%** de macro-F1 incluso con la cámara inclinada 30°. Modelos más antiguos sobre THETIS, como Inception + LSTM, se quedaban en **84.10% de accuracy** con validación LOSO (leave-one-subject-out). La diferencia entre 0.84 y 0.90 suele estar en la arquitectura y en cómo se maneja la variabilidad entre sujetos, no en el volumen de datos.
+---
 
-**Estrategia de entrenamiento:**
+### 🎾 Paso 2: THETIS + `dvc repro` dentro de Docker (fusiona los antiguos "exportar poses" y "entrenar")
 
-1.  **Empieza con el clasificador de secuencia de pose** (el que usa las secuencias exportadas). Es el que más se beneficia de la reutilización de código entre worker y ML.
-2.  **Si el macro-F1 se queda corto, prueba el combinador `vote` o `verify`** con el clasificador YOLO. La configuración ya lo permite sin cambiar código. El YOLO puede aportar información visual que la secuencia de pose pierde (por ejemplo, el contexto de la raqueta).
-3.  **Monitoriza el macro-F1, no solo el accuracy.** THETIS está balanceado (165 clips por clase), así que el accuracy y el macro-F1 deberían ser cercanos, pero el macro-F1 penaliza que una clase concreta (por ejemplo, el saque kick) se confunda sistemáticamente con otra.
-4.  **Si necesitas mejorar, prioriza la aumentación temporal y la normalización de esqueleto** antes que añadir más capas al modelo. La variabilidad entre los 55 sujetos de THETIS es el principal factor de error.
+`dvc repro export_pose_seq` no exporta solo secuencias de pose: ejecuta la cadena completa **`prepare → extract_poses → features → train_pose_seq → export_pose_seq`**. Es decir, también **entrena, evalúa en test, exporta a ONNX y registra el modelo en MLflow**. Por eso los antiguos Pasos 2 y 3 se ejecutan en una sola operación, y el Paso 3 queda como evaluación y decisión.
 
-**Criterio de salida:** El split de test (198 clips) reporta un macro-F1 ≥ 0.90. Si no lo alcanzas, documenta la brecha y la estrategia de mejora antes de publicar el modelo.
+#### 2.1. Dataset — ✅ colocado y verificado
+
+`ml/data/raw/thetis/VIDEO_RGB/<acción>/p<N>_<acción>_s<n>.avi` (3.7 GB):
+- **1,980 clips**: 12 subdirectorios × 165 `.avi`.
+- **55 jugadores**: cada uno con las 12 acciones × 3 repeticiones = 36 clips.
+
+El loader (`ml/src/tennis_ml/datasets.py`) recorre las subcarpetas buscando los nombres de las acciones, así que esta estructura funciona tal cual.
+
+#### 2.2. Lo que hace `prepare` — ✅ revisado
+
+**Mapeo 12 → 5 clases.** Lo aplica `prepare` (`THETIS_CLASSES` en `datasets.py`), y `params.yaml → classes` fija el orden:
+
+| Clase del producto | Acciones THETIS | Clips |
+|---|---|---|
+| `forehand` | forehand_flat, forehand_openstands, forehand_slice | 495 |
+| `backhand` | backhand, backhand2hands, backhand_slice | 495 |
+| `serve` | flat_service, kick_service, slice_service | 495 |
+| `volley` | forehand_volley, backhand_volley | 330 |
+| `other` | smash (no soportado → `UNSUPPORTED_STROKE` en el worker) | 165 |
+
+**Partición por jugador, no por clip.** Así el mismo jugador nunca aparece en train y test, que es metodológicamente mejor que repartir por clip y parecido al LOSO. Con `seed: 42` y 70/20/10 el reparto es determinista. Lo calculé ejecutando `prepare` sobre el dataset real:
+
+| Split | Jugadores | Clips | forehand | backhand | serve | volley | other |
+|---|---|---|---|---|---|---|---|
+| train | 39 | 1,404 | 351 | 351 | 351 | 234 | 117 |
+| val | 11 | 396 | 99 | 99 | 99 | 66 | 33 |
+| test | **5** | **180** | 45 | 45 | 45 | 30 | **15** |
+
+Como cada jugador ejecuta todas las acciones el mismo número de veces, **ningún split se queda sin una clase**, y la proporción de clases es la misma en los tres. El test tiene **180 clips, no los 198** de la partición por clip de la literatura. Por eso las cifras no son directamente comparables con esos papers.
+
+#### 2.3. Lanzar el pipeline dentro de Docker
+
+`.dvc/config` apunta a `http://minio:9000` y el entrenamiento registra en `http://mlflow:5000`. Ambos solo se resuelven dentro de la red del compose. La imagen de ML ya trae `/models/pose_landmarker_full.task` y monta el repo en `/workspace`, con directorio de trabajo `/workspace/ml`.
+
+```bash
+# desde la raíz del repo
+docker compose -f deploy/docker-compose.yml up -d minio mlflow
+docker compose -f deploy/docker-compose.yml --profile ml run --rm ml dvc repro export_pose_seq
+docker compose -f deploy/docker-compose.yml --profile ml run --rm ml dvc push
+```
+
+- `dvc repro` **no sube nada** al remoto: el `dvc push` es un paso explícito.
+- Recuerda publicar solo los puertos necesarios: otros stacks del host ocupan 6379, 5433 y 8000–8007.
+- `extract_poses` sobre 1,980 clips en CPU es la etapa lenta. Las etapas `yolo_*` no forman parte de esta ruta.
+
+#### 2.4. Verificar la cadena
+
+- `dvc.lock` registra el hash de `data/raw/thetis` y de cada salida.
+- `dvc push` completa y los objetos aparecen en el bucket `tennis-ml/dvc` de MinIO.
+- MLflow tiene un run en el experimento de `train_pose_seq` y una nueva versión del modelo registrado **`stroke-pose-seq`**.
+- `ml/metrics/pose_seq.json` existe y `ml/export/pose_seq/` contiene el ONNX y su metadata. La etapa ya comprueba la paridad PyTorch↔ONNX con el clasificador del worker; si divergen, falla.
+
+**Criterio de salida:** `dvc repro export_pose_seq` completa sin errores, `dvc push` sube los artefactos, `dvc.lock` refleja el dataset real y `stroke-pose-seq` tiene una versión nueva en MLflow.
+
+---
+
+### 🧠 Paso 3: Evaluar el modelo y decidir si publicarlo (criterio reformulado)
+
+La tarea es **macro-F1 sobre 5 clases con split por jugador (5 jugadores, 180 clips de test)**. El objetivo ≥ 0.90 sigue siendo razonable, pero hay que interpretarlo con contexto.
+
+#### 3.1. Métricas que emite el pipeline
+
+`export_pose_seq` escribe todo en `metrics/pose_seq.json` y en el run de MLflow, con nombres planos para comparar runs:
+
+| Métrica | Clave en el JSON | En MLflow |
+|---|---|---|
+| Macro-F1 y accuracy en test | `test_macro_f1`, `test_accuracy` | igual |
+| **F1 por clase y soporte** | `test_per_class.<clase>.{f1,support}` | `test_f1_<clase>` |
+| Clases con menos de 20 clips en test (F1 poco fiable) | `test_low_support_classes` | — |
+| Matriz de confusión | `confusion_matrix` | en el JSON del run |
+| Umbral calibrado en val, cobertura y accuracy con umbral | `threshold`, `coverage_at_threshold`, `accuracy_at_threshold` | igual |
+| **Tamaños de split** (jugadores, clips, clases) | `splits.<split>.{players,clips,classes}` | `<split>_players`, `<split>_clips` |
+| **Baselines** (entrenados en train, medidos en test) | `baselines.majority`, `baselines.logreg` | `baseline_<nombre>_{macro_f1,accuracy}` |
+
+El código está en `ml/src/tennis_ml/evaluation.py`, y `export_pose_seq` ahora depende también de `data/labels.csv` y de `dataset.seed`.
+- `majority` predice siempre la clase más frecuente en train. Con THETIS da un macro-F1 trivial ≈ 0.11.
+- `logreg` es una regresión logística sobre la media y la desviación temporal de cada característica del clip. Es un baseline con sentido, porque usa la misma pose pero **sin dinámica temporal**. Si el GRU no lo supera con claridad, la parte secuencial no aporta.
+
+Con THETIS, `test_low_support_classes` incluirá `other` (15 clips): es esperado y hay que mencionarlo al reportar.
+
+#### 3.2. Interpretar el resultado con honestidad
+
+- **No es comparable con la literatura.** Los benchmarks citados (macro-F1 0.913 en diagnóstico de errores, 94.8% en fases, 84.10% accuracy con Inception+LSTM en LOSO) usan otras tareas, número de clases o particiones. Un 0.90 sobre 5 clases agrupadas es una tarea más fácil que 12 clases, y no se debe presentar como equivalente.
+- **La clase `other` es la minoritaria** (165 clips en total, **15 en test**). Con 15 clips, un solo error mueve su F1 varias centésimas, así que su F1 es ruidoso y hay que decirlo al reportarlo. Si el macro-F1 es 0.90 pero el F1 de `other` es menor que 0.75, el agregado engaña. En ese caso: class weights o aumentación específica, o documentar la limitación. Para el producto importa sobre todo que el smash no se clasifique como `serve`, porque se analizaría con métricas que no le corresponden. Por eso conviene revisar esa celda de la matriz de confusión.
+- **Monitoriza el macro-F1, no solo la accuracy.** Con este desbalanceo leve, las dos pueden separarse.
+
+#### 3.3. Si no llega a 0.90
+
+1. Prioriza la **aumentación temporal** y la **normalización de esqueleto** antes que añadir capas. La variabilidad entre los 55 sujetos es el principal factor de error.
+2. Prueba `STROKE_COMBINER=vote` o `verify` con el clasificador YOLO, que se configura sin cambiar código. Requiere construir la imagen con `ML_WITH_YOLO=true` y, en la práctica, una GPU para `train_yolo`.
+3. Documenta la brecha y la estrategia antes de publicar.
+
+**Criterio de salida:** el run de test reporta macro-F1, accuracy, F1 por clase, matriz de confusión, tamaños de split y baseline. **Publicar si** macro-F1 ≥ 0.90, el F1 de `other` es aceptable (≥ 0.75, reportado como ruidoso por n=15) y el modelo supera claramente el baseline. Si no, documentar la brecha y la decisión.
 
 ---
 
 ### 🚀 Paso 4: Publicar el modelo y activar la clasificación automática
 
-Con el modelo validado, regístralo en MLflow y asígnale un **alias** (por ejemplo, `champion`). Los alias de MLflow son referencias mutables a versiones concretas: puedes apuntar `champion` a la versión validada y, cuando mejores el modelo, reasignar el alias sin cambiar el código del worker.
+**El worker no habla con MLflow, y es una decisión deliberada** (`worker/src/tennis_worker/infrastructure/model_store.py`). Al arrancar descarga una **versión fija** desde el bucket (`models/pose_seq/<versión>/model.onnx + meta.json`). Así el arranque es determinista y no depende de que el servidor de experimentos esté disponible. Por eso no conviene que el worker resuelva `models:/…@champion`: un alias mutable haría que dos reinicios del mismo despliegue pudieran cargar modelos distintos.
 
-**Configura el worker para descargar el modelo por alias** (`models:/<nombre_del_modelo>@champion`) al arrancar. Así, cuando publiques una nueva versión y muevas el alias, el worker la adoptará en el siguiente reinicio sin necesidad de reconstruir la imagen.
+El flujo ya implementado:
 
-**Prueba de punta a punta:** Sube un video real de un forehand **sin declarar `stroke_type`**. El worker debe clasificarlo automáticamente, segmentar el golpe, calcular las métricas y devolver el reporte. Si el clasificador no supera el umbral de confianza que definas, el análisis debe fallar con `UNSUPPORTED_STROKE` y un mensaje accionable, tal como está previsto en los contratos.
+1. **Publicar** la exportación validada:
+   ```bash
+   docker compose -f deploy/docker-compose.yml --profile ml run --rm ml python -m tennis_ml publish export/pose_seq
+   ```
+   Este comando sube `model.onnx` y `meta.json` al bucket (`S3_BUCKET`) y mueve el alias de MLflow de `stroke-pose-seq` a esa versión. El alias por defecto es `production`, no `champion`. En MLflow sirve de **trazabilidad** ("qué versión está en producción"), no como mecanismo de carga.
+2. **Desplegar**: fija `POSE_SEQ_MODEL_VERSION=<versión>` (el comando anterior la imprime) en el entorno del worker y reinícialo. No hace falta reconstruir la imagen. Si la variable está vacía, el worker usa el modelo montado en `<stroke_models_dir>/pose_seq`.
+3. **Umbral**: el worker usa `STROKE_MIN_CONFIDENCE` (0.7 por defecto). El `recommended_min_confidence` que la etapa de export calibra en validación y guarda en `meta.json` es **informativo**. Copia ese valor a `STROKE_MIN_CONFIDENCE` al desplegar.
+4. **Activar la detección automática**: hoy el valor por defecto es `STROKE_CLASSIFIERS=user` (el golpe lo declara el usuario). Con `STROKE_CLASSIFIERS=user,pose_seq` y `STROKE_COMBINER=first`, se respeta el `stroke_type` cuando viene declarado y, si no, clasifica el modelo.
 
-**Criterio de salida:** Un video sin `stroke_type` produce un reporte `completed` con el golpe correctamente clasificado y las métricas calculadas.
+**Prueba de punta a punta:** sube un video real de un forehand **sin declarar `stroke_type`**. El worker debe clasificarlo, segmentar el golpe, calcular las métricas y devolver el reporte. Si la confianza no supera el umbral, o la clase es `other`, el análisis falla con `UNSUPPORTED_STROKE` y un mensaje accionable, como prevén los contratos.
+
+**Criterio de salida:** un video sin `stroke_type` produce un reporte `completed` con el golpe correctamente clasificado y las métricas calculadas. Un smash produce `UNSUPPORTED_STROKE`.
 
 ---
 
 ### 📱 Paso 5: Probar la app Android en emulador o dispositivo
 
-La app compila, pero no se ha ejecutado contra el backend. El flujo de red ya está en el módulo `shared`; lo que falta es verificar que la subida directa al almacenamiento y el *polling* funcionan en un entorno real.
-
-**Cómo conectarla al backend local:**
-
-Usa `adb reverse` para redirigir un puerto del dispositivo al puerto del host donde corre la API. El comando es:
+La app compila pero no se ha ejecutado contra el backend. Conéctala al backend local con:
 
 ```bash
 adb reverse tcp:8080 tcp:8080
 ```
 
-Esto hace que `localhost:8080` en el dispositivo apunte a `localhost:8080` en tu máquina. Ajusta el puerto si tu API corre en otro. Evita la IP especial `10.0.2.2` del emulador para depuración de WebView; `adb reverse` es más explícito y funciona igual en dispositivo físico.
+Ajusta el puerto si la API corre en otro. `adb reverse` es preferible a `10.0.2.2`: es explícito y funciona igual en dispositivo físico.
 
-**Flujo a validar:** Login por navegador (PKCE) → creación del análisis → subida del video en *streaming* directo al almacenamiento → *polling* de `GET /v1/analyses/{id}` hasta `completed` → visualización del reporte.
+**Flujo a validar:** login por navegador (PKCE) → creación del análisis → subida directa al almacenamiento en *streaming* → *polling* de `GET /v1/analyses/{id}` hasta `completed` → visualización del reporte.
 
-**Criterio de salida:** El flujo completo funciona en el emulador con `adb reverse` activo.
+**Criterio de salida:** el flujo completo funciona en el emulador con `adb reverse` activo.
 
 ---
 
-### 🍎 Paso 6: Cerrar iOS (el único frente que requiere Mac)
+### 🍎 Paso 6: iOS — ⏸️ fuera de alcance en dev y staging
 
-El código compartido ya declara los targets de iOS. Lo que falta es la capa de UI en SwiftUI y el login con `ASWebAuthenticationSession`, que solo se pueden compilar en macOS.
+Decisión: en dev y staging solo Android. El código compartido ya declara los targets iOS. Faltan la UI en SwiftUI y el login con `ASWebAuthenticationSession`, que requieren macOS.
 
-**Opciones, en orden de pragmatismo:**
+Cuando se retome (fuera de dev/staging), hay dos opciones, en orden de pragmatismo:
+1. **Job en `macos-latest`** que compile el xcframework del módulo `shared` y, si existe, la app. No requiere un Mac físico; cuesta unas 10 veces más por minuto que Ubuntu.
+2. **Mac local o en la nube** para probar la app en el simulador.
 
-1.  **Runner macOS en GitHub Actions:** Puedes configurar un job que compile el xcframework y, si añades la app, la construya. GitHub ofrece runners macOS; el coste es mayor que Linux, pero elimina la dependencia de un Mac físico para el CI.
-2.  **Mac local o en la nube:** Si tienes acceso a un Mac, incluso temporalmente, puedes generar el xcframework y probar la app en el simulador. Para “culminar” el proyecto no necesitas publicar en la App Store; basta con que el CI compile el módulo compartido para iOS y que el código de la app esté estructurado.
-3.  **Compilación sin Mac:** Es posible generar el XCFramework usando GitHub Actions con un runner macOS, sin poseer un Mac. Esto te permite al menos verificar que el módulo compartido compila para iOS.
-
-**Criterio de salida:** El job de iOS en CI compila el módulo `shared` y, si la app está implementada, la construye en un runner macOS. La app puede quedar sin probar en dispositivo físico, pero el código y el CI están cerrados.
+**Criterio de salida (cuando se retome):** el job de iOS compila `shared` en verde y, si la app está implementada, la construye.
 
 ---
 
 ### 🗺️ Mapa de culminación
 
 ```
-[0] Sanear entorno (VC++ / PATH)
+[0] Sanear entorno            ✅ (VC++ · PATH)
         │
         ▼
-[1] Primer commit + CI verde (4 jobs)
+[1] Primer commit + CI verde  ✅ (api, worker, ml, mobile)
         │
         ▼
-[2] THETIS RGB → dvc repro export_pose_seq
+[2] THETIS (✅ 1,980 clips / 55 jugadores)
+    → docker compose ... run --rm ml dvc repro export_pose_seq
+      (prepare → extract_poses → features → train → export) + dvc push
         │
         ▼
-[3] Entrenar → macro-F1 ≥ 0.90 en test (198 clips)
+[3] Evaluar en test (5 jugadores, 180 clips, 5 clases):
+    macro-F1 + F1/clase + matriz + tamaños de split + baseline
         │
         ▼
-[4] MLflow alias "champion" → worker descarga modelo
+[4] tennis_ml publish → bucket + alias MLflow "production"
+    → worker con POSE_SEQ_MODEL_VERSION fija + STROKE_CLASSIFIERS=user,pose_seq
         │
-        ├──► [5] Android: adb reverse → flujo completo en emulador
-        │
-        └──► [6] iOS: CI en macOS compila shared (app si hay Mac)
+        ▼
+[5] Android: adb reverse → flujo completo
+
+    [6] iOS ⏸️ fuera de dev/staging
 ```
 
-Cada paso tiene un criterio de salida verificable. Cuando el Paso 3 cierre con macro-F1 ≥ 0.90, tendrás un **clasificador validado contra un benchmark público**. Cuando el Paso 4 cierre, el sistema **detectará el golpe solo**, sin intervención del usuario. Cuando el Paso 5 cierre, tendrás **evidencia de que el flujo móvil funciona de punta a punta**. El Paso 6 es el único que depende de hardware externo, y puedes cerrarlo a nivel de CI aunque no pruebes en dispositivo.
+La diferencia con el plan anterior: **ya no hay un paso de "exportar poses" separado del de "entrenar"**, porque `dvc repro` hace ambos en una sola ejecución dentro de Docker. El éxito del Paso 3 tampoco es "198 clips con macro-F1 ≥ 0.90", sino **el split por jugador real (180 clips), con macro-F1 sobre 5 clases, F1 por clase, matriz de confusión y baseline, interpretado con honestidad respecto a la literatura.**

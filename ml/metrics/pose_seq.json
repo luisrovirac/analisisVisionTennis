@@ -1,0 +1,124 @@
+{
+  "test_size": 180,
+  "test_macro_f1": 0.7594,
+  "test_per_class": {
+    "forehand": {
+      "f1": 0.7111,
+      "support": 45
+    },
+    "backhand": {
+      "f1": 0.7742,
+      "support": 45
+    },
+    "serve": {
+      "f1": 0.9362,
+      "support": 45
+    },
+    "volley": {
+      "f1": 0.7667,
+      "support": 30
+    },
+    "other": {
+      "f1": 0.6087,
+      "support": 15
+    }
+  },
+  "test_low_support_classes": [
+    "other"
+  ],
+  "test_accuracy": 0.7889,
+  "threshold": 0.99,
+  "coverage_at_threshold": 0.7,
+  "accuracy_at_threshold": 0.8492,
+  "confusion_matrix": {
+    "labels": [
+      "forehand",
+      "backhand",
+      "serve",
+      "volley",
+      "other"
+    ],
+    "matrix": [
+      [
+        32,
+        9,
+        0,
+        4,
+        0
+      ],
+      [
+        6,
+        36,
+        0,
+        3,
+        0
+      ],
+      [
+        0,
+        0,
+        44,
+        0,
+        1
+      ],
+      [
+        7,
+        0,
+        0,
+        23,
+        0
+      ],
+      [
+        0,
+        3,
+        5,
+        0,
+        7
+      ]
+    ]
+  },
+  "baselines": {
+    "majority": {
+      "macro_f1": 0.08,
+      "accuracy": 0.25
+    },
+    "logreg": {
+      "macro_f1": 0.6249,
+      "accuracy": 0.6333
+    }
+  },
+  "splits": {
+    "train": {
+      "players": 39,
+      "clips": 1404,
+      "classes": {
+        "forehand": 351,
+        "backhand": 351,
+        "serve": 351,
+        "volley": 234,
+        "other": 117
+      }
+    },
+    "val": {
+      "players": 11,
+      "clips": 396,
+      "classes": {
+        "forehand": 99,
+        "backhand": 99,
+        "serve": 99,
+        "volley": 66,
+        "other": 33
+      }
+    },
+    "test": {
+      "players": 5,
+      "clips": 180,
+      "classes": {
+        "forehand": 45,
+        "backhand": 45,
+        "serve": 45,
+        "volley": 30,
+        "other": 15
+      }
+    }
+  }
+}

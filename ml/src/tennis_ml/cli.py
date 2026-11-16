@@ -41,7 +41,8 @@ def _train() -> None:
 def _export() -> None:
     from tennis_ml.export import export
 
-    export(c.FEATURES_NPZ, c.POSE_SEQ_DIR, c.load_params(), c.POSE_SEQ_EXPORT, c.METRICS_DIR / "pose_seq.json")
+    export(c.FEATURES_NPZ, c.POSE_SEQ_DIR, c.load_params(), c.POSE_SEQ_EXPORT, c.METRICS_DIR / "pose_seq.json",
+           c.LABELS_CSV)
 
 
 def _yolo_dataset() -> None:

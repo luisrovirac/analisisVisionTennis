@@ -15,7 +15,8 @@ from tennis_worker.pipeline.classification import ClassificationContext, PoseSeq
 from tennis_worker.pipeline.classification.model import OnnxModel
 from tennis_worker.pipeline.pose.serialization import from_artifact
 
-from tennis_ml.datasets import prepare, read_labels, split_by_player, write_labels
+from tennis_ml.datasets import Sample, prepare, read_labels, split_by_player, write_labels
+from tennis_ml.evaluation import low_support_classes, per_class_f1, split_summary
 from tennis_ml.export import calibrate_threshold, export
 from tennis_ml.features import build, load
 from tennis_ml.toy import make_toy
@@ -61,6 +62,18 @@ def test_calibrated_threshold_reaches_target_precision() -> None:
     assert calibrate_threshold(probs, y, target_precision=1.0) == pytest.approx(0.61)
 
 
+def test_per_class_f1_and_split_summary() -> None:
+    y, predicted = np.array([0, 0, 1, 1, 2]), np.array([0, 0, 1, 0, 2])
+    per_class = per_class_f1(y, predicted, ["a", "b", "c", "d"])
+    assert per_class["a"] == {"f1": 0.8, "support": 2} and per_class["d"] == {"f1": 0.0, "support": 0}
+    assert low_support_classes(per_class, minimum=2) == ["c", "d"]
+    samples = [Sample("1", "x", "a", "p1", split="train"), Sample("2", "x", "b", "p1", split="train"),
+               Sample("3", "x", "a", "p2", split="test")]
+    summary = split_summary(samples, ["a", "b"])
+    assert summary["train"] == {"players": 1, "clips": 2, "classes": {"a": 1, "b": 1}}
+    assert summary["test"]["classes"] == {"a": 1, "b": 0} and summary["val"]["clips"] == 0
+
+
 def test_toy_pipeline_trains_exports_and_serves_with_worker_classifier(tmp_path: Path) -> None:
     raw, poses = tmp_path / "raw", tmp_path / "raw"  # en toy, las poses ya son la fuente
     make_toy(raw, players=10, clips_per_class=3)
@@ -77,10 +90,16 @@ def test_toy_pipeline_trains_exports_and_serves_with_worker_classifier(tmp_path:
 
     train(features, p, tmp_path / "train")
     export_dir, metrics_path = tmp_path / "export", tmp_path / "metrics.json"
-    export(features, tmp_path / "train", p, export_dir, metrics_path)  # incluye la comprobación de paridad
+    export(features, tmp_path / "train", p, export_dir, metrics_path, labels)  # incluye la comprobación de paridad
 
     metrics = json.loads(metrics_path.read_text())
     assert metrics["test_macro_f1"] > 0.8  # las trayectorias sintéticas son fácilmente separables
+    assert set(metrics["test_per_class"]) == set(CLASSES)
+    assert sum(v["support"] for v in metrics["test_per_class"].values()) == metrics["test_size"]
+    assert metrics["splits"]["test"]["clips"] == metrics["test_size"]
+    assert sum(v["players"] for v in metrics["splits"].values()) == 10
+    assert metrics["baselines"]["majority"]["macro_f1"] < metrics["test_macro_f1"]
+    assert "logreg" in metrics["baselines"]
     meta = json.loads((export_dir / "meta.json").read_text())
     assert meta["version"] == "test-1" and meta["dataset_hash"].startswith("md5:")
 

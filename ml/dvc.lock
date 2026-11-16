@@ -1,0 +1,167 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: python -m tennis_ml prepare
+    deps:
+    - path: data/raw/thetis
+      hash: md5
+      md5: a64606f546fb1eda44649cb433226970.dir
+      size: 3967567450
+      nfiles: 1980
+    - path: src/tennis_ml/datasets.py
+      hash: md5
+      md5: 8ec9b7879591f1aece28b53cd7555c7d
+      size: 4577
+      isexec: true
+    params:
+      params.yaml:
+        dataset:
+          name: thetis
+          seed: 42
+          splits:
+            train: 0.7
+            val: 0.2
+            test: 0.1
+    outs:
+    - path: data/labels.csv
+      hash: md5
+      md5: e01fe1a4ec8f0899a0f1b02d27e7c630
+      size: 219526
+  extract_poses:
+    cmd: python -m tennis_ml extract
+    deps:
+    - path: data/labels.csv
+      hash: md5
+      md5: e01fe1a4ec8f0899a0f1b02d27e7c630
+      size: 219526
+    - path: data/raw/thetis
+      hash: md5
+      md5: a64606f546fb1eda44649cb433226970.dir
+      size: 3967567450
+      nfiles: 1980
+    - path: src/tennis_ml/extract.py
+      hash: md5
+      md5: 84ac58000e70a2b8202961fa25c8ff6e
+      size: 1599
+      isexec: true
+    params:
+      params.yaml:
+        pose_model: /models/pose_landmarker_full.task
+    outs:
+    - path: data/poses
+      hash: md5
+      md5: 95affcfb8af05856fcef35e798887381.dir
+      size: 329021516
+      nfiles: 1980
+  features:
+    cmd: python -m tennis_ml features
+    deps:
+    - path: ../worker/src/tennis_worker/pipeline/classification/features.py
+      hash: md5
+      md5: c0ac813a31ed8467aeb3c023e2e3f37e
+      size: 2682
+      isexec: true
+    - path: data/labels.csv
+      hash: md5
+      md5: e01fe1a4ec8f0899a0f1b02d27e7c630
+      size: 219526
+    - path: data/poses
+      hash: md5
+      md5: 95affcfb8af05856fcef35e798887381.dir
+      size: 329021516
+      nfiles: 1980
+    - path: src/tennis_ml/features.py
+      hash: md5
+      md5: 12639d88e73df0bbfb7a79b151b09388
+      size: 2022
+      isexec: true
+    params:
+      params.yaml:
+        classes:
+        - forehand
+        - backhand
+        - serve
+        - volley
+        - other
+        pose_seq.seq_len: 64
+    outs:
+    - path: data/features.npz
+      hash: md5
+      md5: 25e76faaf18e17c2ccc6485d3421696e
+      size: 46247041
+  train_pose_seq:
+    cmd: python -m tennis_ml train
+    deps:
+    - path: data/features.npz
+      hash: md5
+      md5: 25e76faaf18e17c2ccc6485d3421696e
+      size: 46247041
+    - path: src/tennis_ml/model.py
+      hash: md5
+      md5: 4b0e4aa760f4ff5c1502b2d574ee7059
+      size: 972
+      isexec: true
+    - path: src/tennis_ml/train.py
+      hash: md5
+      md5: b9db635c9cca80cb14da8ca68fb5425a
+      size: 3828
+      isexec: true
+    params:
+      params.yaml:
+        dataset.seed: 42
+        pose_seq:
+          seq_len: 64
+          hidden: 128
+          layers: 2
+          dropout: 0.2
+          epochs: 40
+          batch_size: 32
+          lr: 0.001
+          target_precision: 0.95
+    outs:
+    - path: artifacts/pose_seq
+      hash: md5
+      md5: f971bb0434884666889c53a432f09371.dir
+      size: 758026
+      nfiles: 2
+  export_pose_seq:
+    cmd: python -m tennis_ml export
+    deps:
+    - path: artifacts/pose_seq
+      hash: md5
+      md5: f971bb0434884666889c53a432f09371.dir
+      size: 758026
+      nfiles: 2
+    - path: data/features.npz
+      hash: md5
+      md5: 25e76faaf18e17c2ccc6485d3421696e
+      size: 46247041
+    - path: data/labels.csv
+      hash: md5
+      md5: e01fe1a4ec8f0899a0f1b02d27e7c630
+      size: 219526
+    - path: src/tennis_ml/evaluation.py
+      hash: md5
+      md5: a0c59aa4c922d9f377f4a77cce35655d
+      size: 3613
+      isexec: true
+    - path: src/tennis_ml/export.py
+      hash: md5
+      md5: 647081a4bc9f52840763c2a0d32dbc2b
+      size: 6364
+      isexec: true
+    params:
+      params.yaml:
+        dataset.seed: 42
+        pose_seq.target_precision: 0.95
+        version: ''
+    outs:
+    - path: export/pose_seq
+      hash: md5
+      md5: a6b2f6bfed7b94026cbe79988b755497.dir
+      size: 759056
+      nfiles: 2
+    - path: metrics/pose_seq.json
+      hash: md5
+      md5: ba97c4c6c425df759a3ad74180b28d66
+      size: 1860

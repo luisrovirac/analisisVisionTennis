@@ -19,6 +19,8 @@ from tennis_worker.pipeline.classification.features import FEATURE_SET
 from tennis_worker.pipeline.classification.model import META_FILE, MODEL_FILE, OnnxModel, softmax
 
 from tennis_ml.common import md5_file
+from tennis_ml.datasets import read_labels
+from tennis_ml.evaluation import baselines, low_support_classes, per_class_f1, split_summary
 from tennis_ml.features import Split, load
 from tennis_ml.model import StrokeGRU
 from tennis_ml.train import RUN_FILE, WEIGHTS_FILE, predict_proba
@@ -27,7 +29,8 @@ REGISTERED_MODEL = "stroke-pose-seq"
 OPSET = 17
 
 
-def export(features_path: Path, train_dir: Path, params: dict[str, Any], out_dir: Path, metrics_path: Path) -> None:
+def export(features_path: Path, train_dir: Path, params: dict[str, Any], out_dir: Path, metrics_path: Path,
+           labels_path: Path | None = None) -> None:
     p = params["pose_seq"]
     run = json.loads((train_dir / RUN_FILE).read_text(encoding="utf-8"))
     classes, splits = load(features_path)
@@ -36,6 +39,10 @@ def export(features_path: Path, train_dir: Path, params: dict[str, Any], out_dir
     model.eval()
     threshold = calibrate_threshold(predict_proba(model, splits["val"].x), splits["val"].y, p["target_precision"])
     metrics = evaluate(predict_proba(model, splits["test"].x), splits["test"].y, classes, threshold)
+    if metrics["test_size"]:
+        metrics["baselines"] = baselines(splits, params["dataset"]["seed"])
+    if labels_path is not None:
+        metrics["splits"] = split_summary(read_labels(labels_path), classes)
     meta = {"classifier": "pose_seq", "version": params["version"] or _default_version(run["run_id"]),
             "classes": classes, "feature_set": FEATURE_SET, "seq_len": p["seq_len"],
             "recommended_min_confidence": threshold, "mlflow_run_id": run["run_id"],
@@ -63,9 +70,12 @@ def evaluate(probs: np.ndarray, y: np.ndarray, classes: list[str], threshold: fl
         return {"test_size": 0}
     predicted, confidence = probs.argmax(axis=1), probs.max(axis=1)
     accepted = confidence >= threshold
+    per_class = per_class_f1(y, predicted, classes)
     return {
         "test_size": len(y),
         "test_macro_f1": round(float(f1_score(y, predicted, average="macro", zero_division=0)), 4),
+        "test_per_class": per_class,
+        "test_low_support_classes": low_support_classes(per_class),
         "test_accuracy": round(float((predicted == y).mean()), 4),
         "threshold": threshold,
         "coverage_at_threshold": round(float(accepted.mean()), 4),
@@ -95,9 +105,21 @@ def _default_version(run_id: str) -> str:
     return f"{datetime.now(timezone.utc):%Y%m%d}-{run_id[:8]}"
 
 
+def _flat_metrics(metrics: dict[str, Any]) -> dict[str, float]:
+    """Valores numéricos para MLflow, con nombres planos (test_f1_other, baseline_logreg_macro_f1, ...)."""
+    flat = {k: v for k, v in metrics.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    for cls, v in metrics.get("test_per_class", {}).items():
+        flat[f"test_f1_{cls}"] = v["f1"]
+    for name, scores in metrics.get("baselines", {}).items():
+        flat |= {f"baseline_{name}_{k}": s for k, s in scores.items()}
+    for split, v in metrics.get("splits", {}).items():
+        flat |= {f"{split}_players": v["players"], f"{split}_clips": v["clips"]}
+    return flat
+
+
 def _log_to_mlflow(run_id: str, metrics: dict[str, Any], out_dir: Path) -> None:
     with mlflow.start_run(run_id=run_id):
-        mlflow.log_metrics({k: v for k, v in metrics.items() if isinstance(v, (int, float))})
+        mlflow.log_metrics(_flat_metrics(metrics))
         mlflow.log_dict(metrics, "metrics/pose_seq.json")
         mlflow.log_artifacts(str(out_dir), artifact_path="export")
         mlflow.register_model(f"runs:/{run_id}/export", REGISTERED_MODEL)
