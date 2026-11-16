@@ -1,0 +1,152 @@
+# Base de conocimiento del FOREHAND.
+# ⚠ Umbrales PROVISIONALES: deben ser revisados y validados por un entrenador antes de producción.
+#   Cuando se valide, rellena `validated_by` y sube `version`.
+# Guía de edición: Docs/BASE_CONOCIMIENTO.md
+stroke: forehand
+version: 0.1.0
+validated_by: null
+
+rules:
+  # ---------- Errores fundamentales (postura / preparación / contacto) ----------
+  - id: FH-PREP-001
+    title: Preparación sin giro de hombros
+    category: fundamental
+    impact: 5
+    difficulty: 1
+    when:
+      all:
+        - {metric: shoulder_rotation_range, op: lt, value: 45}
+    explanation: >
+      Los hombros apenas rotan entre la preparación y el impacto. Sin ese giro el golpe pierde
+      potencia y dependes casi solo del brazo.
+    correction: >
+      Al ver venir la bola, gira los hombros hasta que el hombro no dominante apunte a la bola,
+      llevando la raqueta atrás con el giro del tronco, no solo con el brazo.
+    drills:
+      - "Sombra frente a un espejo: gira hasta ver tu espalda de perfil y pausa 1 s antes de golpear."
+      - "Golpes desde el pie con la mano no dominante señalando la bola hasta el último momento."
+
+  - id: FH-POST-001
+    title: Piernas rígidas (sin flexión de rodillas)
+    category: fundamental
+    impact: 4
+    difficulty: 1
+    when:
+      all:
+        - {metric: knee_angle_min, op: gt, value: 160}
+    explanation: >
+      Las rodillas casi no se flexionan durante la preparación, así que las piernas no aportan
+      impulso ni estabilidad al golpe.
+    correction: >
+      Flexiona las rodillas al preparar (como para sentarte en un taburete alto) y empuja desde el
+      suelo hacia arriba y hacia delante al golpear.
+    drills:
+      - "Series de 10 golpes con la consigna: 'bajo al preparar, subo al golpear'."
+      - "Sentadillas con pausa en posición de preparación (3 x 10)."
+
+  - id: FH-CONT-001
+    title: Punto de impacto atrasado
+    category: fundamental
+    impact: 5
+    difficulty: 2
+    when:
+      all:
+        - {metric: contact_point_ahead, op: lt, value: 0.15}
+    explanation: >
+      Golpeas la bola demasiado cerca del cuerpo o por detrás de él. Pierdes control de la
+      dirección y fuerzas el brazo.
+    correction: >
+      Busca el impacto por delante de la cadera delantera, con el brazo cómodo y extendido.
+      Prepara antes para tener tiempo de ir a buscar la bola delante.
+    drills:
+      - "Coloca un cono a un paso por delante de tu pie adelantado e intenta golpear a su altura."
+      - "Peloteo con bolas lentas pausando en el punto de impacto para comprobar la posición."
+
+  - id: FH-FIN-001
+    title: Terminación corta
+    category: fundamental
+    impact: 3
+    difficulty: 1
+    when:
+      all:
+        - {metric: follow_through_height, op: lt, value: 0.0}
+    explanation: >
+      El brazo no termina por encima del hombro: el swing se frena antes de tiempo y la bola sale
+      sin efecto y con menos profundidad.
+    correction: >
+      Deja que la raqueta siga su recorrido hasta terminar por encima del hombro contrario,
+      con el codo apuntando hacia la red.
+    drills:
+      - "Sombra exagerando la terminación: termina 'atrapando' la raqueta con la mano no dominante."
+
+  - id: FH-ARM-001
+    title: Codo demasiado flexionado en el impacto
+    category: fundamental
+    impact: 3
+    difficulty: 2
+    when:
+      all:
+        - {metric: elbow_angle_at_impact, op: lt, value: 100}
+    explanation: >
+      El brazo llega muy encogido al impacto, lo que reduce el radio del swing y suele indicar que
+      estás demasiado cerca de la bola.
+    correction: >
+      Separa un poco más la bola del cuerpo y deja que el brazo se extienda de forma natural en el
+      impacto, sin bloquearlo del todo.
+    drills:
+      - "Golpes con una pelota bajo la axila del brazo libre para mantener la estructura y la distancia."
+
+  # ---------- Errores de sincronización (cadena cinética) ----------
+  - id: FH-SYNC-001
+    title: Cadera y hombros giran en bloque
+    category: sincronizacion
+    impact: 4
+    difficulty: 4
+    when:
+      all:
+        - {metric: hip_shoulder_separation_max, op: lt, value: 15}
+    explanation: >
+      Cadera y hombros giran a la vez, sin separación entre ellos. Se pierde la "torsión" que
+      almacena energía elástica en el tronco.
+    correction: >
+      Inicia el swing hacia delante con la cadera mientras los hombros todavía están girados;
+      los hombros deben seguir a la cadera una fracción de segundo después.
+    drills:
+      - "Sombra en dos tiempos: 1) gira la cadera, 2) suelta hombros y brazo."
+      - "Lanzamientos laterales con balón medicinal desde posición de preparación."
+
+  - id: FH-SYNC-002
+    title: Cadena cinética desordenada
+    category: sincronizacion
+    impact: 5
+    difficulty: 5
+    when:
+      all:
+        - {metric: kinetic_chain_sequence, op: eq, value: 0}
+    explanation: >
+      Los segmentos del cuerpo no alcanzan su máxima velocidad en el orden eficiente
+      (cadera → hombros → brazo). La energía no se transmite de forma escalonada.
+    correction: >
+      Piensa en el golpe como un látigo: primero piernas y cadera, después el tronco y, por último,
+      el brazo y la raqueta. Trabaja a velocidad lenta hasta automatizar el orden.
+    drills:
+      - "Golpes a cámara lenta contando en voz alta '1-cadera, 2-hombros, 3-brazo'."
+      - "Lanzamientos de balón medicinal con rotación, enfatizando el inicio desde la cadera."
+
+  - id: FH-SYNC-003
+    title: Golpeo con el brazo
+    category: sincronizacion
+    impact: 5
+    difficulty: 4
+    when:
+      all:
+        - {metric: hip_shoulder_separation_max, op: lt, value: 20}
+        - {metric: elbow_angle_at_impact, op: lt, value: 110}
+    explanation: >
+      La cadera apenas participa y el codo llega flexionado al impacto: el golpe se genera
+      principalmente con el brazo, lo que limita la potencia y sobrecarga hombro y codo.
+    correction: >
+      Inicia el movimiento desde las caderas y deja que el brazo sea el último eslabón, llegando
+      relajado y extendido al impacto.
+    drills:
+      - "Golpes con el brazo 'muerto': la rotación de cadera y tronco es la que lleva la raqueta."

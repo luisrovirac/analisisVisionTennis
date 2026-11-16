@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tennis-vision/job_message/1.1",
+  "title": "JobMessage",
+  "description": "Mensaje que la API publica en el stream de Redis (campo `payload`) y que consume el worker. 1.1: stroke_type es opcional; si falta, el worker detecta el golpe. El worker acepta 1.0 y 1.1.",
+  "type": "object",
+  "required": ["schema_version", "analysis_id", "video_key", "handedness", "camera_view"],
+  "properties": {
+    "schema_version": {"enum": ["1.0", "1.1"]},
+    "analysis_id": {"type": "string", "format": "uuid"},
+    "video_key": {"type": "string", "description": "Clave del objeto en el bucket, ej. videos/<id>"},
+    "stroke_type": {"enum": ["forehand", "backhand", "serve", "volley"], "description": "Obligatorio en 1.0; opcional en 1.1"},
+    "handedness": {"enum": ["right", "left"]},
+    "camera_view": {"enum": ["side", "front", "back"]}
+  },
+  "if": {"properties": {"schema_version": {"const": "1.0"}}},
+  "then": {"required": ["stroke_type"]}
+}

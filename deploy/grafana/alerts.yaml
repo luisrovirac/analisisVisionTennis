@@ -1,0 +1,54 @@
+# Alertas de la cola. Se ven en Grafana → Alerting; para notificar (email, Slack) añade un
+# contact point. Los nombres de métrica son la traducción de OTLP a Prometheus
+# (queue.pending → queue_pending).
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: cola
+    folder: Tennis Vision
+    interval: 1m
+    rules:
+      - uid: tennis-queue-stuck
+        title: Trabajos sin confirmar durante 15 minutos
+        condition: C
+        for: 15m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: >-
+            Hay mensajes entregados al grupo de workers que nadie confirma. Probablemente hay un
+            worker caído o un trabajo que siempre falla; revisa los logs del worker y la DLQ.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model: {refId: A, expr: "max(queue_pending)", instant: true}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{evaluator: {type: gt, params: [0]}}]
+      - uid: tennis-dlq-not-empty
+        title: Mensajes en la dead letter queue
+        condition: C
+        for: 0m
+        noDataState: OK
+        execErrState: Error
+        annotations:
+          summary: >-
+            Hay trabajos que agotaron sus intentos. Inspecciónalos con
+            XRANGE analysis_jobs:dlq - + (campo reason) y bórralos con XDEL cuando estén resueltos.
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model: {refId: A, expr: "max(queue_dlq_length)", instant: true}
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions: [{evaluator: {type: gt, params: [0]}}]

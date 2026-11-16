@@ -1,0 +1,6 @@
+# Fin de línea LF en el repo (evita diffs espurios entre Windows y Linux/CI).
+* text=auto eol=lf
+*.task binary
+*.onnx binary
+*.mp4 binary
+*.mov binary

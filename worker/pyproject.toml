@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tennis-worker"
+version = "0.1.0"
+description = "Worker de visión: pose → segmentación → métricas → reglas → errores priorizados"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "numpy>=1.26,<2",
+  "pydantic>=2.6,<3",
+  "pydantic-settings>=2.2,<3",
+  "pyyaml>=6.0",
+  "opencv-python-headless>=4.9,<5",
+  "mediapipe>=0.10.14,<0.11",
+  "redis>=5.0,<6",
+  "boto3>=1.34,<2",
+  "psycopg[binary]>=3.1,<4",
+  "opentelemetry-sdk>=1.27,<2",
+  "opentelemetry-exporter-otlp-proto-http>=1.27,<2",
+  "onnxruntime>=1.18,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "pytest-cov>=5",
+  "ruff>=0.6",
+  "mypy>=1.10",
+  "types-PyYAML",
+  "jsonschema>=4",
+  "types-jsonschema",
+  "boto3-stubs[s3]",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-m 'not integration'"
+markers = ["integration: requiere el modelo de MediaPipe y un video real en samples/"]
+
+[tool.coverage.run]
+source = ["tennis_worker"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "N", "A", "C90", "RUF"]
+# Los mensajes al usuario en español usan tipografía (–, …) a propósito.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 8
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["mediapipe.*", "cv2.*", "onnxruntime.*"]
+ignore_missing_imports = true

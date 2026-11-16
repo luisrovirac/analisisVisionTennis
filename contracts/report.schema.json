@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tennis-vision/report/1.0",
+  "title": "Report",
+  "description": "Resultado de un análisis. El worker lo escribe en analyses.report y la API lo devuelve tal cual.",
+  "type": "object",
+  "required": ["schema_version", "stroke_type", "segment", "metrics", "findings", "quality", "knowledge_base_version"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "stroke_type": {"enum": ["forehand", "backhand", "serve", "volley"]},
+    "segment": {
+      "type": "object",
+      "required": ["fps", "start_frame", "backswing_frame", "impact_frame", "end_frame"],
+      "properties": {
+        "fps": {"type": "number"},
+        "start_frame": {"type": "integer"},
+        "backswing_frame": {"type": "integer"},
+        "impact_frame": {"type": "integer"},
+        "end_frame": {"type": "integer"}
+      }
+    },
+    "metrics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "label", "value", "unit", "confidence"],
+        "properties": {
+          "id": {"type": "string"},
+          "label": {"type": "string"},
+          "value": {"type": "number"},
+          "unit": {"type": "string"},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "Errores detectados, ordenados de más simple/fundamental a más complejo (rank 1 = corregir primero).",
+      "items": {
+        "type": "object",
+        "required": ["rule_id", "rank", "category", "title", "explanation", "correction", "drills", "evidence"],
+        "properties": {
+          "rule_id": {"type": "string"},
+          "rank": {"type": "integer", "minimum": 1},
+          "category": {"enum": ["fundamental", "sincronizacion"]},
+          "title": {"type": "string"},
+          "explanation": {"type": "string"},
+          "correction": {"type": "string"},
+          "drills": {"type": "array", "items": {"type": "string"}},
+          "evidence": {"type": "object", "additionalProperties": {"type": "number"}}
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["pose_detection_rate", "warnings"],
+      "properties": {
+        "pose_detection_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "warnings": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "knowledge_base_version": {"type": "string", "description": "ej. forehand@0.1.0"},
+    "classification": {
+      "description": "Opcional. Cómo se decidió el golpe: el usuario o un modelo, y con qué modelo y datos.",
+      "type": ["object", "null"],
+      "required": ["stroke", "confidence", "classifier_id"],
+      "properties": {
+        "stroke": {"enum": ["forehand", "backhand", "serve", "volley"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "classifier_id": {"type": "string", "description": "user, pose_seq, yolo o vote"},
+        "model_version": {"type": ["string", "null"]},
+        "dataset_hash": {"type": ["string", "null"], "description": "Hash DVC de los datos de entrenamiento"}
+      }
+    }
+  }
+}

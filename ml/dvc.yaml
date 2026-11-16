@@ -1,0 +1,93 @@
+# Pipeline del clasificador de golpes. `dvc repro` reconstruye todo desde data/raw/<dataset>;
+# `dvc repro export_pose_seq` solo la ruta de pose (CPU). Las etapas yolo_* necesitan el extra
+# [yolo] (WITH_YOLO=true al construir la imagen) y, en la práctica, una GPU.
+stages:
+  prepare:
+    cmd: python -m tennis_ml prepare
+    deps:
+      - data/raw/${dataset.name}
+      - src/tennis_ml/datasets.py
+    params:
+      - dataset
+    outs:
+      - data/labels.csv
+
+  extract_poses:
+    cmd: python -m tennis_ml extract
+    deps:
+      - data/labels.csv
+      - data/raw/${dataset.name}
+      - src/tennis_ml/extract.py
+    params:
+      - pose_model
+    outs:
+      - data/poses
+
+  features:
+    cmd: python -m tennis_ml features
+    deps:
+      - data/labels.csv
+      - data/poses
+      - src/tennis_ml/features.py
+      # La función de características vive en el worker (una sola implementación para entrenar y servir).
+      - ../worker/src/tennis_worker/pipeline/classification/features.py
+    params:
+      - classes
+      - pose_seq.seq_len
+    outs:
+      - data/features.npz
+
+  train_pose_seq:
+    cmd: python -m tennis_ml train
+    deps:
+      - data/features.npz
+      - src/tennis_ml/model.py
+      - src/tennis_ml/train.py
+    params:
+      - pose_seq
+      - dataset.seed
+    outs:
+      - artifacts/pose_seq
+
+  export_pose_seq:
+    cmd: python -m tennis_ml export
+    deps:
+      - artifacts/pose_seq
+      - data/features.npz
+      - src/tennis_ml/export.py
+    params:
+      - version
+      - pose_seq.target_precision
+    outs:
+      - export/pose_seq
+    metrics:
+      - metrics/pose_seq.json:
+          cache: false
+
+  yolo_dataset:
+    cmd: python -m tennis_ml yolo-dataset
+    deps:
+      - data/labels.csv
+      - data/poses
+      - data/raw/${dataset.name}
+      - src/tennis_ml/yolo.py
+    params:
+      - classes
+      - yolo.frames_per_clip
+    outs:
+      - data/yolo
+
+  train_yolo:
+    cmd: python -m tennis_ml yolo-train
+    deps:
+      - data/yolo
+      - src/tennis_ml/yolo.py
+    params:
+      - yolo
+      - version
+    outs:
+      - artifacts/yolo
+      - export/yolo
+    metrics:
+      - metrics/yolo.json:
+          cache: false

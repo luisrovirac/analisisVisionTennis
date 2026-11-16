@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Análisis de golpe</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>Análisis de golpe</h1>
+    <p class="lead">Sube un video de tu golpe y recibe los errores ordenados del más simple al más complejo, cada uno con su corrección.</p>
+    <div id="session" class="session" hidden>
+      <span id="session-user"></span>
+      <button id="logout" type="button" class="secondary">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <section id="login-card" class="card" hidden>
+    <p>Inicia sesión para analizar tus golpes y ver tu historial.</p>
+    <button id="login" type="button">Iniciar sesión</button>
+  </section>
+
+  <details class="card guide" open>
+    <summary>Cómo grabar para un buen análisis</summary>
+    <ul>
+      <li><strong>De perfil</strong> (cámara a tu lado, perpendicular a la dirección del golpe).</li>
+      <li><strong>Cuerpo entero visible</strong>, de pies a cabeza, durante todo el golpe.</li>
+      <li>Cámara fija a <strong>3–6 m</strong>, a la altura de la cadera.</li>
+      <li><strong>Un solo golpe</strong> por video, de 3 a 10 segundos. Si puedes, a 60 fps.</li>
+      <li>Buena luz; evita contraluz.</li>
+    </ul>
+  </details>
+
+  <form id="upload-form" class="card" hidden>
+    <div class="fields">
+      <label>Golpe
+        <select name="stroke_type">
+          <option value="">Detectar automáticamente</option>
+          <option value="forehand" selected>Forehand (derecha)</option>
+          <option value="backhand" disabled>Revés (próximamente)</option>
+          <option value="serve" disabled>Saque (próximamente)</option>
+          <option value="volley" disabled>Volea (próximamente)</option>
+        </select>
+      </label>
+      <label>Mano dominante
+        <select name="handedness">
+          <option value="right" selected>Diestro</option>
+          <option value="left">Zurdo</option>
+        </select>
+      </label>
+      <label>Vista de la cámara
+        <select name="camera_view">
+          <option value="side" selected>Perfil</option>
+          <option value="front">Frontal</option>
+          <option value="back">Trasera</option>
+        </select>
+      </label>
+    </div>
+    <label class="file">Video (MP4 o MOV)
+      <input type="file" name="video" accept="video/*" required>
+    </label>
+    <button type="submit">Analizar</button>
+  </form>
+
+  <section id="status" class="card" hidden>
+    <p id="status-text" role="status" aria-live="polite"></p>
+    <progress id="progress" max="100" value="0"></progress>
+  </section>
+
+  <section id="result" hidden>
+    <div id="warnings"></div>
+    <h2>Errores detectados <span class="muted">(corrige en este orden)</span></h2>
+    <ol id="findings"></ol>
+    <details class="card">
+      <summary>Métricas medidas</summary>
+      <table id="metrics"><thead><tr><th>Métrica</th><th>Valor</th><th>Confianza</th></tr></thead><tbody></tbody></table>
+    </details>
+  </section>
+
+  <section id="history" class="card" hidden>
+    <div class="history-head">
+      <h2>Mis análisis</h2>
+      <button id="refresh-history" type="button" class="secondary">Actualizar</button>
+    </div>
+    <ul id="history-list"></ul>
+  </section>
+</main>
+<script src="auth.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

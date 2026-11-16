@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tennis
+          POSTGRES_PASSWORD: ci_only
+          POSTGRES_DB: tennis
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tennis -d tennis"
+          --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: api/go.mod
+          cache-dependency-path: api/go.sum
+      - run: go vet ./...
+      - run: go test ./... -cover
+      - name: Tests de integración (Postgres real)
+        run: go test -tags integration ./...
+        env:
+          TEST_DATABASE_URL: postgres://tennis:ci_only@localhost:5432/tennis?sslmode=disable
+
+  worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: worker/pyproject.toml
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: mypy src
+      - run: pytest --cov --cov-fail-under=80
+
+  ml:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            worker/pyproject.toml
+            ml/pyproject.toml
+      - run: pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install -e "../worker[dev]" -e ".[dev]"
+      - run: ruff check src tests
+      - name: Pipeline de punta a punta con datos sintéticos (entrena, exporta a ONNX y sirve con el worker)
+        run: pytest -q
+
+  mobile:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew  # en Windows git no conserva el bit de ejecución
+      - run: ./gradlew :shared:testDebugUnitTest :androidApp:assembleDebug --console=plain

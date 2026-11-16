@@ -1,0 +1,139 @@
+name: tennis-vision
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: ../.env
+    ports: ["127.0.0.1:5432:5432"]  # solo para tests de integración desde el host
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: [redisdata:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    env_file: ../.env
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 10
+
+  # Crea el bucket y un usuario de aplicación con permisos mínimos (no se usa el root).
+  minio-init:
+    image: minio/mc:latest
+    env_file: ../.env
+    depends_on:
+      minio: {condition: service_healthy}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing "local/$$S3_BUCKET"
+        mc admin user add local "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY"
+        mc admin policy attach local readwrite --user "$$S3_ACCESS_KEY" || true
+        # Bucket y usuario del pipeline de ML (DVC, MLflow y publicación de modelos).
+        mc mb --ignore-existing "local/$$ML_S3_BUCKET"
+        mc admin user add local "$$ML_S3_ACCESS_KEY" "$$ML_S3_SECRET_KEY"
+        mc admin policy attach local readwrite --user "$$ML_S3_ACCESS_KEY" || true
+
+  # Proveedor OIDC de desarrollo. En producción se sustituye por cualquier IdP OIDC
+  # cambiando OIDC_ISSUER_URL/OIDC_AUDIENCE/OIDC_JWKS_URL: la API no depende de Keycloak.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3.3
+    command: ["start-dev", "--import-realm"]
+    env_file: ../.env  # KC_HOSTNAME y credenciales del administrador
+    environment:
+      KC_HEALTH_ENABLED: "true"
+    # Sin 127.0.0.1 a propósito: el móvil de la red local también necesita iniciar sesión.
+    ports: ["8180:8080"]
+    volumes: ["./keycloak:/opt/keycloak/data/import:ro"]
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.0\r\n\r\n' >&3 &&
+          grep -q UP <&3
+      interval: 5s
+      retries: 30
+
+  # Observabilidad todo-en-uno: OTel Collector + Tempo (trazas) + Prometheus (métricas) + Loki + Grafana.
+  # Solo Grafana se publica en el host; OTLP (4318) queda en la red interna de docker.
+  otel-lgtm:
+    image: grafana/otel-lgtm:0.11.10
+    ports: ["127.0.0.1:3001:3000"]
+    volumes:
+      - ./grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/tennis.yaml:ro
+      - ./grafana/alerts.yaml:/otel-lgtm/grafana/conf/provisioning/alerting/tennis.yaml:ro
+      - ./grafana/dashboards:/otel-lgtm/tennis-dashboards:ro
+      - lgtmdata:/data
+
+  api:
+    build: ../api
+    env_file: ../.env
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+      keycloak: {condition: service_healthy}
+      otel-lgtm: {condition: service_started}
+    restart: unless-stopped
+
+  worker:
+    build: ../worker
+    env_file: ../.env
+    depends_on:
+      api: {condition: service_started}
+      otel-lgtm: {condition: service_started}
+    restart: unless-stopped
+
+  # --- MLOps (docker compose --profile ml ...) ---
+  mlflow:
+    profiles: ["ml"]
+    build: ./mlflow
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      ML_S3_BUCKET: ${ML_S3_BUCKET:-tennis-ml}
+    env_file: ../.env  # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY del usuario de ML
+    ports: ["127.0.0.1:5001:5000"]
+    volumes: [mlflowdata:/mlflow]
+    depends_on:
+      minio-init: {condition: service_completed_successfully}
+
+  # Entorno de entrenamiento. Uso: docker compose --profile ml run --rm ml dvc repro export_pose_seq
+  ml:
+    profiles: ["ml"]
+    build:
+      context: ..
+      dockerfile: ml/Dockerfile
+      args:
+        WITH_YOLO: ${ML_WITH_YOLO:-false}
+    env_file: ../.env
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      AWS_ENDPOINT_URL: http://minio:9000
+    volumes: ["..:/workspace"]
+    depends_on:
+      mlflow: {condition: service_started}
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  lgtmdata:
+  mlflowdata:

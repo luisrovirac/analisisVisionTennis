@@ -1,0 +1,143 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import replace
+from pathlib import Path
+
+import pytest
+
+from tennis_worker.contracts import JobMessage
+from tennis_worker.errors import StrokeNotRecognizedError, UnsupportedStrokeError
+from tennis_worker.pipeline.biomechanics.registry import default_registry
+from tennis_worker.pipeline.classification import (
+    CascadeCombiner,
+    ClassificationContext,
+    ClassificationResult,
+    FirstCombiner,
+    StrokeRecognizer,
+    UserProvidedClassifier,
+    VerifyCombiner,
+)
+from tennis_worker.pipeline.knowledge.engine import RuleEngine
+from tennis_worker.pipeline.knowledge.repository import YamlKnowledgeBaseRepository
+from tennis_worker.pipeline.orchestrator import AnalysisPipeline, PipelineStages
+from tennis_worker.pipeline.prioritization import CategoryImpactPrioritizer
+from tennis_worker.pipeline.quality import QualityAssessor
+from tennis_worker.pipeline.segmentation import WristSpeedSegmenter
+from tennis_worker.pipeline.types import PoseSequence
+from tennis_worker.pipeline.video import Frame, VideoStream
+from tests.conftest import CONTRACTS_DIR, KNOWLEDGE_DIR
+from tests.synthetic import BAD_SWING, GOOD_SWING, SwingSpec, make_pose
+
+
+class FakeStream:
+    fps = 60.0
+
+    def frames(self) -> Iterator[Frame]:
+        return iter(())
+
+
+class FakeReader:
+    @contextmanager
+    def open(self, path: Path) -> Iterator[VideoStream]:
+        yield FakeStream()
+
+
+class FakeEstimator:
+    def __init__(self, pose: PoseSequence) -> None:
+        self._pose = pose
+
+    def estimate(self, stream: VideoStream) -> PoseSequence:
+        return self._pose
+
+
+def pipeline_for(spec: SwingSpec) -> AnalysisPipeline:
+    return AnalysisPipeline(stages_for(spec))
+
+
+def stages_for(spec: SwingSpec) -> PipelineStages:
+    return PipelineStages(
+        video_reader=FakeReader(),
+        pose_estimator=FakeEstimator(make_pose(spec)),
+        quality=QualityAssessor(min_detection_rate=0.6),
+        classifier=StrokeRecognizer([UserProvidedClassifier()], FirstCombiner(0.7)),
+        segmenter=WristSpeedSegmenter(),
+        metrics=default_registry(),
+        knowledge=YamlKnowledgeBaseRepository(KNOWLEDGE_DIR),
+        rules=RuleEngine(min_confidence=0.5),
+        prioritizer=CategoryImpactPrioritizer(),
+    )
+
+
+def test_good_swing_produces_no_findings(job: JobMessage) -> None:
+    report = pipeline_for(GOOD_SWING).run(Path("video"), job).report
+    assert report.findings == []
+    assert report.knowledge_base_version.startswith("forehand@")
+    assert report.quality.pose_detection_rate == 1.0
+
+
+def test_bad_swing_lists_errors_fundamental_first(job: JobMessage) -> None:
+    report = pipeline_for(BAD_SWING).run(Path("video"), job).report
+    ids = [f.rule_id for f in report.findings]
+    assert {"FH-PREP-001", "FH-POST-001", "FH-CONT-001", "FH-FIN-001", "FH-SYNC-002", "FH-SYNC-003"} <= set(ids)
+    categories = [f.category for f in report.findings]
+    assert categories == sorted(categories, key=lambda c: c != "fundamental")
+    assert [f.rank for f in report.findings] == list(range(1, len(ids) + 1))
+
+
+def test_report_validates_against_json_schema(job: JobMessage) -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads((CONTRACTS_DIR / "report.schema.json").read_text(encoding="utf-8"))
+    report = pipeline_for(BAD_SWING).run(Path("video"), job).report
+    jsonschema.validate(report.model_dump(mode="json"), schema)
+
+
+def test_unsupported_stroke_fails_with_actionable_error(job: JobMessage) -> None:
+    with pytest.raises(UnsupportedStrokeError):
+        pipeline_for(GOOD_SWING).run(Path("video"), job.model_copy(update={"stroke_type": "serve"}))
+
+
+class Disagreeing:
+    id = "pose_seq"
+
+    def classify(self, ctx: ClassificationContext) -> ClassificationResult:
+        return ClassificationResult(self.id, {"serve": 0.92, "forehand": 0.08}, "pose_seq@v7", "md5:data")
+
+
+def pipeline_with(recognizer: StrokeRecognizer) -> AnalysisPipeline:
+    return AnalysisPipeline(replace(stages_for(GOOD_SWING), classifier=recognizer))
+
+
+def test_report_records_how_the_stroke_was_decided(job: JobMessage) -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    recognizer = StrokeRecognizer([UserProvidedClassifier(), Disagreeing()], VerifyCombiner(0.7))
+    report = pipeline_with(recognizer).run(Path("video"), job).report
+    assert report.classification is not None and report.classification.classifier_id == "user"
+    assert report.stroke_type == "forehand" and any("serve" in w for w in report.quality.warnings)
+    schema = json.loads((CONTRACTS_DIR / "report.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(report.model_dump(mode="json"), schema)
+
+
+def test_detected_stroke_is_used_when_user_did_not_declare(job: JobMessage) -> None:
+    undeclared = job.model_copy(update={"stroke_type": None, "schema_version": "1.1"})
+    recognizer = StrokeRecognizer([UserProvidedClassifier(), Confident()], CascadeCombiner(0.7))
+    report = pipeline_with(recognizer).run(Path("video"), undeclared).report
+    assert report.stroke_type == "forehand"
+    assert report.classification is not None
+    assert (report.classification.model_version, report.classification.dataset_hash) == ("pose_seq@v7", "md5:data")
+
+
+def test_unrecognized_stroke_fails_with_actionable_error(job: JobMessage) -> None:
+    undeclared = job.model_copy(update={"stroke_type": None})
+    recognizer = StrokeRecognizer([UserProvidedClassifier()], FirstCombiner(0.7))
+    with pytest.raises(StrokeNotRecognizedError):
+        pipeline_with(recognizer).run(Path("video"), undeclared)
+
+
+class Confident:
+    id = "pose_seq"
+
+    def classify(self, ctx: ClassificationContext) -> ClassificationResult:
+        return ClassificationResult(self.id, {"forehand": 0.9, "serve": 0.1}, "pose_seq@v7", "md5:data")

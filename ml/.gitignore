@@ -1,0 +1,6 @@
+# Salidas del pipeline: las versiona DVC (dvc.lock + remote), no git.
+/data/
+/artifacts/
+/export/
+/mlruns/
+/mlartifacts/

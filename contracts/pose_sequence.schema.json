@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tennis-vision/pose_sequence/1.0",
+  "title": "PoseSequence",
+  "description": "Pose por fotograma que el worker guarda en el bucket como poses/<analysis_id>.json. Permite al equipo de biomecánica iterar métricas offline sin reprocesar video. Índices de landmarks = MediaPipe Pose (33 puntos).",
+  "type": "object",
+  "required": ["schema_version", "fps", "landmark_count", "frames"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "fps": {"type": "number"},
+    "landmark_count": {"const": 33},
+    "frames": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["index", "detected", "image", "world", "visibility"],
+        "properties": {
+          "index": {"type": "integer"},
+          "detected": {"type": "boolean", "description": "false = fotograma interpolado (sin detección real)"},
+          "image": {"description": "[x, y, z] normalizados a la imagen, por landmark", "type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}},
+          "world": {"description": "[x, y, z] en metros aproximados, centrados en la cadera (y hacia abajo)", "type": "array", "items": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}},
+          "visibility": {"type": "array", "items": {"type": "number"}}
+        }
+      }
+    }
+  }
+}

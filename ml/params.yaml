@@ -1,0 +1,33 @@
+# Parámetros versionados del pipeline (dvc.yaml los cita: cambiar uno invalida solo las etapas afectadas).
+version: ""  # versión del modelo exportado; vacío = <fecha>-<run id de MLflow>
+
+dataset:
+  name: thetis  # carpeta en data/raw/: thetis | own | toy
+  seed: 42
+  # Partición por jugador (no por clip): el mismo jugador nunca está en train y en test.
+  splits: {train: 0.7, val: 0.2, test: 0.1}
+
+# "other" agrupa lo que no es un golpe soportado (p. ej. el smash de THETIS): el worker lo
+# trata como no reconocido (UNSUPPORTED_STROKE).
+classes: [forehand, backhand, serve, volley, other]
+
+pose_model: /models/pose_landmarker_full.task
+
+pose_seq:
+  seq_len: 64
+  hidden: 128
+  layers: 2
+  dropout: 0.2
+  epochs: 40
+  batch_size: 32
+  lr: 0.001
+  # Umbral de confianza recomendado: el menor que alcanza esta precisión en validación.
+  target_precision: 0.95
+
+yolo:
+  base: yolo11n.pt
+  frames_per_clip: 8  # fotogramas etiquetados por clip para entrenar
+  clip_frames: 16  # fotogramas que muestrea el worker al clasificar
+  imgsz: 640
+  epochs: 50
+  device: cpu  # "0" para la primera GPU

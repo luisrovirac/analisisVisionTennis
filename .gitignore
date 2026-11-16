@@ -1,0 +1,30 @@
+# Secretos y datos locales (nunca en git)
+.env
+samples/
+models/
+data/
+
+# MLOps (DVC/MLflow guardan sus artefactos fuera de git)
+mlruns/
+mlartifacts/
+
+# Go
+api/bin/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+
+# Editores / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
