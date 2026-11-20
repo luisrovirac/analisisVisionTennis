@@ -21,12 +21,13 @@ func NewPostgres(pool *pgxpool.Pool) *PostgresRepository {
 }
 
 const insertSQL = `
-INSERT INTO analyses (id, user_id, stroke_type, handedness, camera_view, status, video_key, created_at, updated_at)
-VALUES ($1::uuid, $2::uuid, NULLIF($3, ''), $4, $5, $6, $7, $8, $9)`
+INSERT INTO analyses (id, user_id, stroke_type, handedness, camera_view, status, video_key, created_at, updated_at,
+                      expert_review_allowed)
+VALUES ($1::uuid, $2::uuid, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10)`
 
 func (r *PostgresRepository) Create(ctx context.Context, a domain.Analysis) error {
 	_, err := r.pool.Exec(ctx, insertSQL, a.ID, a.UserID, a.Params.StrokeType, a.Params.Handedness,
-		a.Params.CameraView, a.Status, a.VideoKey, a.CreatedAt, a.UpdatedAt)
+		a.Params.CameraView, a.Status, a.VideoKey, a.CreatedAt, a.UpdatedAt, a.Params.ExpertReviewAllowed)
 	if err != nil {
 		return fmt.Errorf("insertar análisis: %w", err)
 	}
@@ -35,7 +36,7 @@ func (r *PostgresRepository) Create(ctx context.Context, a domain.Analysis) erro
 
 const selectColumns = `
 SELECT id::text, user_id::text, COALESCE(stroke_type, ''), handedness, camera_view, status, video_key, attempts,
-       error_code, error_message, report, kb_version, created_at, updated_at
+       error_code, error_message, report, kb_version, created_at, updated_at, expert_review_allowed
 FROM analyses`
 
 // El filtro por dueño va en el SQL (no solo en el servicio): defensa en profundidad.
@@ -82,7 +83,7 @@ func scanAnalysis(row pgx.Row) (domain.Analysis, error) {
 	err := row.Scan(
 		&a.ID, &a.UserID, &a.Params.StrokeType, &a.Params.Handedness, &a.Params.CameraView,
 		&a.Status, &a.VideoKey, &a.Attempts, &a.ErrorCode, &a.ErrorMessage, &a.Report,
-		&a.KBVersion, &a.CreatedAt, &a.UpdatedAt)
+		&a.KBVersion, &a.CreatedAt, &a.UpdatedAt, &a.Params.ExpertReviewAllowed)
 	return a, err
 }
 
@@ -95,6 +96,31 @@ func (r *PostgresRepository) Transition(ctx context.Context, id string, from, to
 	tag, err := r.pool.Exec(ctx, transitionSQL, id, from, to)
 	if err != nil {
 		return false, fmt.Errorf("cambiar estado: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+// La condición de estado va en el mismo DELETE para que no compita con el worker.
+const deleteSQL = `
+DELETE FROM analyses
+WHERE id = $1::uuid AND user_id = $2::uuid AND status NOT IN ('queued', 'processing')`
+
+func (r *PostgresRepository) Delete(ctx context.Context, ownerID, id string) (bool, error) {
+	tag, err := r.pool.Exec(ctx, deleteSQL, id, ownerID)
+	if err != nil {
+		return false, fmt.Errorf("borrar análisis: %w", err)
+	}
+	return tag.RowsAffected() == 1, nil
+}
+
+const setExpertReviewSQL = `
+UPDATE analyses SET expert_review_allowed = $3, updated_at = now() WHERE id = $1::uuid AND user_id = $2::uuid`
+
+// SetExpertReview cambia el permiso de revisión experta; devuelve false si el análisis no es de ownerID.
+func (r *PostgresRepository) SetExpertReview(ctx context.Context, ownerID, id string, allowed bool) (bool, error) {
+	tag, err := r.pool.Exec(ctx, setExpertReviewSQL, id, ownerID, allowed)
+	if err != nil {
+		return false, fmt.Errorf("cambiar permiso de revisión: %w", err)
 	}
 	return tag.RowsAffected() == 1, nil
 }

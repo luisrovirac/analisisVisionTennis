@@ -23,6 +23,14 @@ pose_seq:
   lr: 0.001
   # Umbral de confianza recomendado: el menor que alcanza esta precisión en validación.
   target_precision: 0.95
+  # Palancas de experimentación (neutros por defecto; DVC las versiona).
+  # El peso base de `other` ya es inversamente proporcional a su frecuencia (~2.4); boost lo multiplica.
+  # Configuración del mejor variante del barrido de 2026-11-17 (ver metrics/sweep_results_20261117.json).
+  # Mejora other F1 0.609→0.75 y other→serve 5/15→1/15, pero aún no alcanza las compuertas de publicación.
+  other_weight_boost: 2.0
+  noise_std: 0.01      # ruido gaussiano sobre las coordenadas de pose (solo train)
+  time_warp: 0.02      # aceleración/ralentización aleatoria de la secuencia (solo train)
+  other_serve_penalty: 0.5  # penalización de other→serve al elegir época (0 = solo macro-F1)
 
 yolo:
   base: yolo11n.pt
@@ -30,4 +38,4 @@ yolo:
   clip_frames: 16  # fotogramas que muestrea el worker al clasificar
   imgsz: 640
   epochs: 50
-  device: cpu  # "0" para la primera GPU
+  device: "0"  # GPU local disponible; volver a "cpu" si no hay GPU

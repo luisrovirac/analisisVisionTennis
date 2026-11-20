@@ -132,7 +132,9 @@ func flushTelemetry(shutdown telemetry.Shutdown, logger *slog.Logger) {
 func newVerifier(ctx context.Context, cfg config.AuthConfig, logger *slog.Logger) (httpapi.TokenVerifier, error) {
 	if cfg.Disabled {
 		logger.Warn("AUTH_DISABLED: todas las peticiones se atribuyen al usuario de desarrollo")
-		return auth.StaticVerifier{Principal: domain.Principal{Issuer: "dev", Subject: "dev-user"}}, nil
+		// Email verificado de desarrollo: con BOOTSTRAP_ADMIN_EMAILS=dev@localhost el usuario dev es admin.
+		return auth.StaticVerifier{Principal: domain.Principal{Issuer: "dev", Subject: "dev-user",
+			Email: "dev@localhost", EmailVerified: true}}, nil
 	}
 	return auth.NewOIDCVerifier(ctx, auth.OIDCConfig{IssuerURL: cfg.IssuerURL, Audience: cfg.Audience, JWKSURL: cfg.JWKSURL})
 }
@@ -158,10 +160,17 @@ func wire(inf infra, verifier httpapi.TokenVerifier, cfg config.Config, logger *
 		{Name: "redis", Ping: publisher.Ping},
 		{Name: "storage", Ping: inf.store.Ping},
 	}
+	users := repository.NewPostgresUsers(inf.pool)
+	knowledge := service.NewKnowledge(repository.NewPostgresKnowledge(inf.pool),
+		service.KnowledgeConfig{MinMetricConfidence: cfg.KBMinMetricConfidence}, time.Now)
 	return httpapi.NewRouter(httpapi.RouterDeps{
 		Analyses:    svc,
+		Preferences: service.NewPreferences(users),
+		Profiles:    service.NewProfiles(users),
+		Admin:       service.NewAdmin(users, time.Now),
+		Knowledge:   knowledge,
 		Verifier:    verifier,
-		Users:       repository.NewPostgresUsers(inf.pool),
+		Users:       service.NewIdentity(users, cfg.BootstrapAdminEmails),
 		AuthConfig:  clientAuthConfig(cfg.Auth),
 		Checks:      checks,
 		Web:         static,

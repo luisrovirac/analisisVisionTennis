@@ -7,6 +7,7 @@ from pathlib import Path
 
 from tennis_worker.contracts import Classification, JobMessage, MetricValue, Quality, Report
 from tennis_worker.observability import Instrumentation
+from tennis_worker.pipeline import insights
 from tennis_worker.pipeline.biomechanics.base import MetricContext
 from tennis_worker.pipeline.biomechanics.registry import MetricRegistry
 from tennis_worker.pipeline.classification import ClassificationContext, Decision, StrokeRecognizer
@@ -65,18 +66,24 @@ class AnalysisPipeline:
             evaluation = self._s.rules.evaluate(kb, metrics)
         with self._obs.stage("prioritize"):
             findings = self._s.prioritizer.prioritize(evaluation.fired)
+            strengths = insights.rank_strengths(evaluation.strengths)
+        unmeasured = _labels(metrics, evaluation.unmeasured_metrics)
+        warnings = [*decision.warnings, *self._s.quality.warnings(pose, job, unmeasured)]
+        diagnosis = insights.diagnose(findings, strengths, kb, unmeasured, warnings)
         report = Report(
             stroke_type=stroke,
             segment=segment,
             metrics=list(metrics.values()),
             findings=findings,
-            quality=Quality(
-                pose_detection_rate=round(pose.detection_rate, 3),
-                warnings=[*decision.warnings,
-                          *self._s.quality.warnings(pose, job, _labels(metrics, evaluation.unmeasured_metrics))],
-            ),
+            quality=Quality(pose_detection_rate=round(pose.detection_rate, 3), warnings=warnings),
             knowledge_base_version=kb.label,
             classification=_classification(decision),
+            strengths=strengths,
+            diagnosis=diagnosis,
+            drill_plan=insights.plan_drills(findings, diagnosis),
+            reliability=insights.assess_reliability(pose.detection_rate, metrics, self._s.rules.min_confidence,
+                                                    warnings),
+            knowledge_status=insights.knowledge_status(kb),
         )
         return PipelineResult(report=report, pose=pose)
 

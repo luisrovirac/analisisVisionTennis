@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,6 +23,11 @@ type Config struct {
 	LogLevel       slog.Level
 	Auth           AuthConfig
 	Telemetry      TelemetryConfig
+	// BootstrapAdminEmails reciben el rol admin al iniciar sesión con ese email verificado.
+	// Sirve para crear el primer admin; después los roles se gestionan desde la consola admin.
+	BootstrapAdminEmails []string
+	// KBMinMetricConfidence: mismo umbral que MIN_METRIC_CONFIDENCE del worker (previsualización).
+	KBMinMetricConfidence float64
 }
 
 type TelemetryConfig struct {
@@ -72,6 +78,10 @@ func Load(lookup LookupFunc) (Config, error) {
 		},
 	}
 	cfg.JobDLQStream = l.optional("JOB_DLQ_STREAM", cfg.JobStream+":dlq")
+	cfg.BootstrapAdminEmails = splitList(l.optional("BOOTSTRAP_ADMIN_EMAILS", ""))
+	cfg.KBMinMetricConfidence = parse(l, "MIN_METRIC_CONFIDENCE", 0.5, func(s string) (float64, error) {
+		return strconv.ParseFloat(s, 64)
+	})
 	if err := errors.Join(l.errs...); err != nil {
 		return Config{}, fmt.Errorf("configuración inválida:\n%w", err)
 	}
@@ -105,6 +115,16 @@ func loadAuth(l *loader) AuthConfig {
 		JWKSURL:     l.optional("OIDC_JWKS_URL", ""),
 		WebClientID: l.optional("OIDC_WEB_CLIENT_ID", "tennis-web"),
 	}
+}
+
+func splitList(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 type loader struct {

@@ -141,3 +141,25 @@ class Confident:
 
     def classify(self, ctx: ClassificationContext) -> ClassificationResult:
         return ClassificationResult(self.id, {"forehand": 0.9, "serve": 0.1}, "pose_seq@v7", "md5:data")
+
+
+def test_good_swing_reports_strengths_and_1_1_fields(job: JobMessage) -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    report = pipeline_for(GOOD_SWING).run(Path("video"), job).report
+    assert 1 <= len(report.strengths) <= 5
+    assert [s.rank for s in report.strengths] == list(range(1, len(report.strengths) + 1))
+    assert report.diagnosis is not None and report.diagnosis.root_cause_rule_id is None
+    assert report.drill_plan is None  # sin errores no hay plan
+    assert report.reliability is not None and report.knowledge_status is not None
+    assert report.knowledge_status.status == "provisional"  # la semilla no está validada
+    schema = json.loads((CONTRACTS_DIR / "report.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(report.model_dump(mode="json"), schema)
+
+
+def test_bad_swing_diagnosis_names_a_root_cause_and_plan(job: JobMessage) -> None:
+    report = pipeline_for(BAD_SWING).run(Path("video"), job).report
+    diagnosis = report.diagnosis
+    assert diagnosis is not None and diagnosis.root_cause_rule_id == "FH-PREP-001"
+    assert {"FH-CONT-001", "FH-FIN-001"} <= set(diagnosis.contributing_factors)  # PREP → CONT → FIN
+    assert report.drill_plan is not None and report.drill_plan.items[0].focus_rule_id == "FH-PREP-001"
+    assert not any(s.rule_id in {"FH-STR-003", "FH-STR-007"} for s in report.strengths)  # suprimidas

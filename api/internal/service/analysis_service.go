@@ -96,6 +96,44 @@ func (s *AnalysisService) List(ctx context.Context, ownerID string, q domain.Lis
 	return Page{Items: items, NextCursor: items[len(items)-1].Cursor().Encode()}, nil
 }
 
+// Delete borra el análisis y sus archivos. Los objetos se borran antes que la fila: si algo
+// falla a medias, el análisis sigue visible y el usuario puede reintentar (Remove es idempotente).
+func (s *AnalysisService) Delete(ctx context.Context, ownerID, id string) error {
+	a, err := s.Get(ctx, ownerID, id)
+	if err != nil {
+		return err
+	}
+	if !a.Deletable() {
+		return domain.ErrAnalysisBusy
+	}
+	if err := s.store.Remove(ctx, a.ObjectKeys()...); err != nil {
+		return fmt.Errorf("borrar archivos del análisis: %w", err)
+	}
+	deleted, err := s.repo.Delete(ctx, ownerID, id)
+	if err != nil {
+		return fmt.Errorf("borrar análisis: %w", err)
+	}
+	if !deleted { // el usuario lo envió a analizar entre la lectura y el borrado
+		return domain.ErrAnalysisBusy
+	}
+	return nil
+}
+
+// SetExpertReview cambia el checkbox "Permitir que expertos vean este video" de un análisis propio.
+func (s *AnalysisService) SetExpertReview(ctx context.Context, ownerID, id string, allowed bool) (domain.Analysis, error) {
+	if !domain.IsValidID(id) {
+		return domain.Analysis{}, domain.ErrNotFound
+	}
+	changed, err := s.repo.SetExpertReview(ctx, ownerID, id, allowed)
+	if err != nil {
+		return domain.Analysis{}, fmt.Errorf("cambiar permiso de revisión: %w", err)
+	}
+	if !changed {
+		return domain.Analysis{}, domain.ErrNotFound
+	}
+	return s.Get(ctx, ownerID, id)
+}
+
 func (s *AnalysisService) verifyUpload(ctx context.Context, key string) error {
 	info, err := s.store.Stat(ctx, key)
 	switch {

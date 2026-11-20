@@ -1,4 +1,5 @@
-"""Modelos espejo de contracts/*.schema.json. Cualquier cambio aquí exige subir schema_version."""
+"""Modelos espejo de contracts/*.schema.json. Un cambio incompatible exige subir schema_version;
+añadir un campo opcional (revisión 1.1 del reporte) no lo cambia."""
 
 from __future__ import annotations
 
@@ -57,6 +58,58 @@ class Finding(_Frozen):
     correction: str
     drills: list[str]
     evidence: dict[str, float]
+    validated: bool = False  # 1.1: aprobada por un validador (False = provisional)
+
+
+class Strength(_Frozen):
+    """1.1: punto fuerte. No es la ausencia de un error: tiene su propia regla y umbral."""
+
+    rule_id: str
+    rank: int = Field(ge=1)
+    category: Category
+    title: str
+    why_it_matters: str
+    how_to_maintain: str
+    evidence: dict[str, float]
+    confidence: float = Field(ge=0.0, le=1.0)
+    validated: bool = False
+
+
+class Diagnosis(_Frozen):
+    summary: str
+    root_cause_rule_id: str | None
+    contributing_factors: list[str]
+    strengths_to_leverage: list[str]
+    limitations: list[str]
+    unmeasurable: list[str]
+
+
+class DrillPlanItem(_Frozen):
+    week: int = Field(ge=1)
+    focus_rule_id: str
+    focus: str
+    drills: list[str]
+
+
+class DrillPlan(_Frozen):
+    weeks: int = Field(ge=1)
+    reanalyze_after_weeks: int = Field(ge=1)
+    items: list[DrillPlanItem]
+
+
+ReliabilityLevel = Literal["high", "medium", "low"]
+
+
+class Reliability(_Frozen):
+    score: float = Field(ge=0.0, le=1.0)
+    level: ReliabilityLevel
+    reasons: list[str]
+
+
+class KnowledgeStatus(_Frozen):
+    status: Literal["provisional", "partially_validated", "validated"]
+    validated_rules: int = Field(ge=0)
+    total_rules: int = Field(ge=0)
 
 
 class Quality(_Frozen):
@@ -83,3 +136,9 @@ class Report(_Frozen):
     quality: Quality
     knowledge_base_version: str
     classification: Classification | None = None  # campo opcional: no cambia schema_version
+    # Revisión 1.1 (aditiva): todos opcionales, schema_version sigue en 1.0.
+    strengths: list[Strength] = Field(default_factory=list)
+    diagnosis: Diagnosis | None = None
+    drill_plan: DrillPlan | None = None
+    reliability: Reliability | None = None
+    knowledge_status: KnowledgeStatus | None = None

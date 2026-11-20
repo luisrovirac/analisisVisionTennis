@@ -1,0 +1,208 @@
+{
+  "classes": [
+    "forehand",
+    "backhand",
+    "serve",
+    "volley",
+    "other"
+  ],
+  "calibration": {
+    "threshold": 0.99,
+    "target_precision": 0.95,
+    "val_precision_at_threshold": 0.8387,
+    "reached_target": false,
+    "used_fallback": true
+  },
+  "val": {
+    "size": 396,
+    "per_class_f1": {
+      "forehand": {
+        "f1": 0.794,
+        "support": 99
+      },
+      "backhand": {
+        "f1": 0.7919,
+        "support": 99
+      },
+      "serve": {
+        "f1": 0.8172,
+        "support": 99
+      },
+      "volley": {
+        "f1": 0.6714,
+        "support": 66
+      },
+      "other": {
+        "f1": 0.5714,
+        "support": 33
+      }
+    },
+    "critical_confusion": {
+      "source": "other",
+      "target": "serve",
+      "available": true,
+      "count": 8,
+      "support": 33,
+      "rate": 0.2424
+    },
+    "confidence_bins": [
+      {
+        "from": 0.0,
+        "to": 0.3,
+        "n": 0,
+        "precision": null
+      },
+      {
+        "from": 0.3,
+        "to": 0.5,
+        "n": 3,
+        "precision": 0.6667
+      },
+      {
+        "from": 0.5,
+        "to": 0.7,
+        "n": 26,
+        "precision": 0.4615
+      },
+      {
+        "from": 0.7,
+        "to": 0.9,
+        "n": 26,
+        "precision": 0.5769
+      },
+      {
+        "from": 0.9,
+        "to": 0.95,
+        "n": 20,
+        "precision": 0.65
+      },
+      {
+        "from": 0.95,
+        "to": 0.99,
+        "n": 42,
+        "precision": 0.5714
+      },
+      {
+        "from": 0.99,
+        "to": 1.0,
+        "n": 279,
+        "precision": 0.8387
+      }
+    ],
+    "accepted": {
+      "coverage": 0.7045,
+      "precision": 0.8387
+    }
+  },
+  "test": {
+    "size": 180,
+    "per_class_f1": {
+      "forehand": {
+        "f1": 0.7111,
+        "support": 45
+      },
+      "backhand": {
+        "f1": 0.7742,
+        "support": 45
+      },
+      "serve": {
+        "f1": 0.9362,
+        "support": 45
+      },
+      "volley": {
+        "f1": 0.7667,
+        "support": 30
+      },
+      "other": {
+        "f1": 0.6087,
+        "support": 15
+      }
+    },
+    "critical_confusion": {
+      "source": "other",
+      "target": "serve",
+      "available": true,
+      "count": 5,
+      "support": 15,
+      "rate": 0.3333
+    },
+    "confidence_bins": [
+      {
+        "from": 0.0,
+        "to": 0.3,
+        "n": 0,
+        "precision": null
+      },
+      {
+        "from": 0.3,
+        "to": 0.5,
+        "n": 1,
+        "precision": 0.0
+      },
+      {
+        "from": 0.5,
+        "to": 0.7,
+        "n": 10,
+        "precision": 0.9
+      },
+      {
+        "from": 0.7,
+        "to": 0.9,
+        "n": 18,
+        "precision": 0.5556
+      },
+      {
+        "from": 0.9,
+        "to": 0.95,
+        "n": 10,
+        "precision": 0.6
+      },
+      {
+        "from": 0.95,
+        "to": 0.99,
+        "n": 15,
+        "precision": 0.6667
+      },
+      {
+        "from": 0.99,
+        "to": 1.0,
+        "n": 126,
+        "precision": 0.8492
+      }
+    ],
+    "accepted": {
+      "coverage": 0.7,
+      "precision": 0.8492
+    }
+  },
+  "export_metrics": {
+    "test_macro_f1": 0.7594,
+    "test_per_class": {
+      "forehand": {
+        "f1": 0.7111,
+        "support": 45
+      },
+      "backhand": {
+        "f1": 0.7742,
+        "support": 45
+      },
+      "serve": {
+        "f1": 0.9362,
+        "support": 45
+      },
+      "volley": {
+        "f1": 0.7667,
+        "support": 30
+      },
+      "other": {
+        "f1": 0.6087,
+        "support": 15
+      }
+    },
+    "critical_confusion": null,
+    "threshold": 0.99,
+    "coverage_at_threshold": 0.7,
+    "accuracy_at_threshold": 0.8492,
+    "threshold_reached_target": null
+  }
+}

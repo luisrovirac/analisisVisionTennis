@@ -62,6 +62,16 @@ func (s *S3Store) Stat(ctx context.Context, key string) (domain.ObjectInfo, erro
 	return domain.ObjectInfo{Size: info.Size, ContentType: info.ContentType}, nil
 }
 
+// S3 responde éxito al borrar una clave inexistente, así que Remove es idempotente.
+func (s *S3Store) Remove(ctx context.Context, keys ...string) error {
+	for _, key := range keys {
+		if err := s.internal.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{}); err != nil {
+			return fmt.Errorf("borrar %s: %w", key, err)
+		}
+	}
+	return nil
+}
+
 func (s *S3Store) Ping(ctx context.Context) error {
 	ok, err := s.internal.BucketExists(ctx, s.bucket)
 	if err != nil {

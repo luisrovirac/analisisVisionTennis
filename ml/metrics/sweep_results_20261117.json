@@ -1,0 +1,142 @@
+{
+  "date": "2026-11-17",
+  "dataset": "thetis (1.980 clips, split por jugador, test 180 clips / 5 jugadores)",
+  "note": "Barrido local con torch 2.1 CPU (mismo código, parche en memoria para el flag dynamo del export). Los umbrales se recalcularon con el grid ampliado; las métricas de test de cada variante son del modelo recién entrenado, no del modelo publicado.",
+  "variants": {
+    "baseline": {
+      "params": {
+        "other_weight_boost": 1.0,
+        "noise_std": 0.0,
+        "time_warp": 0.0,
+        "other_serve_penalty": 0.0
+      },
+      "mlflow_run_id": "7cce35ada84045f6b1202885e83b3001",
+      "test_macro_f1": 0.7594,
+      "other_f1": 0.6087,
+      "critical_confusion": {
+        "source": "other",
+        "target": "serve",
+        "available": true,
+        "count": 5,
+        "support": 15,
+        "rate": 0.3333
+      },
+      "threshold": 0.99,
+      "threshold_reached_target": false,
+      "coverage_at_threshold": 0.7,
+      "precision_at_threshold": 0.8492
+    },
+    "boost2": {
+      "params": {
+        "other_weight_boost": 2.0
+      },
+      "mlflow_run_id": "b28284101266472b9cb458c3235fd872",
+      "test_macro_f1": 0.7007,
+      "other_f1": 0.4762,
+      "critical_confusion": {
+        "source": "other",
+        "target": "serve",
+        "available": true,
+        "count": 8,
+        "support": 15,
+        "rate": 0.5333
+      },
+      "threshold": 0.99,
+      "threshold_reached_target": false,
+      "coverage_at_threshold": 0.4556,
+      "precision_at_threshold": 0.8537
+    },
+    "boost2_aug_penalty": {
+      "params": {
+        "other_weight_boost": 2.0,
+        "noise_std": 0.01,
+        "time_warp": 0.02,
+        "other_serve_penalty": 0.5
+      },
+      "mlflow_run_id": "c7f8d403ea0a48eda435a6207f967264",
+      "test_macro_f1": 0.7794,
+      "other_f1": 0.75,
+      "critical_confusion": {
+        "source": "other",
+        "target": "serve",
+        "available": true,
+        "count": 1,
+        "support": 15,
+        "rate": 0.0667
+      },
+      "threshold": 0.9992,
+      "threshold_reached_target": true,
+      "coverage_at_threshold": 0.2333,
+      "precision_at_threshold": 0.881
+    },
+    "penalty1": {
+      "params": {
+        "other_weight_boost": 2.0,
+        "noise_std": 0.01,
+        "time_warp": 0.02,
+        "other_serve_penalty": 1.0
+      },
+      "mlflow_run_id": "3522385ed5b4405ab6785d8c69307843",
+      "test_macro_f1": 0.7285,
+      "other_f1": 0.7647,
+      "critical_confusion": {
+        "source": "other",
+        "target": "serve",
+        "available": true,
+        "count": 0,
+        "support": 15,
+        "rate": 0.0
+      },
+      "threshold": 0.99,
+      "threshold_reached_target": false,
+      "coverage_at_threshold": 0.3111,
+      "precision_at_threshold": 0.8393
+    },
+    "strong_aug": {
+      "params": {
+        "other_weight_boost": 2.0,
+        "noise_std": 0.02,
+        "time_warp": 0.05,
+        "other_serve_penalty": 0.5
+      },
+      "mlflow_run_id": "aaf0d2b63904490dada8ece0431ee376",
+      "test_macro_f1": 0.7279,
+      "other_f1": 0.8,
+      "critical_confusion": {
+        "source": "other",
+        "target": "serve",
+        "available": true,
+        "count": 0,
+        "support": 15,
+        "rate": 0.0
+      },
+      "threshold": 0.99,
+      "threshold_reached_target": false,
+      "coverage_at_threshold": 0.3444,
+      "precision_at_threshold": 0.8548
+    },
+    "boost15": {
+      "params": {
+        "other_weight_boost": 1.5,
+        "noise_std": 0.01,
+        "time_warp": 0.02,
+        "other_serve_penalty": 0.5
+      },
+      "mlflow_run_id": "32b00337ec9148afaf5545dbd2dcf8fc",
+      "test_macro_f1": 0.7619,
+      "other_f1": 0.9375,
+      "critical_confusion": {
+        "source": "other",
+        "target": "serve",
+        "available": true,
+        "count": 0,
+        "support": 15,
+        "rate": 0.0
+      },
+      "threshold": 0.9995,
+      "threshold_reached_target": true,
+      "coverage_at_threshold": 0.1556,
+      "precision_at_threshold": 0.8929
+    }
+  }
+}

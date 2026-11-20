@@ -1,4 +1,4 @@
-"""Motor de reglas: evalúa las condiciones del YAML contra las métricas medidas."""
+"""Motor de reglas: evalúa las condiciones contra las métricas medidas."""
 
 from __future__ import annotations
 
@@ -41,32 +41,44 @@ OPERATORS: Mapping[Operator, OperatorFn] = {
 class FiredRule:
     rule: Rule
     evidence: dict[str, float]
+    confidence: float = 1.0  # la menor confianza entre las métricas que sustentan la regla
 
 
 @dataclass(frozen=True)
 class Evaluation:
-    fired: list[FiredRule]
+    fired: list[FiredRule]  # errores
     unmeasured_metrics: set[str] = field(default_factory=set)
+    strengths: list[FiredRule] = field(default_factory=list)
 
 
 class RuleEngine:
-    """Una regla solo se dispara si todas sus métricas se midieron con confianza suficiente:
-    es preferible callar a dar una corrección basada en una medición poco fiable."""
+    """Una regla (error o fortaleza) solo se dispara si todas sus métricas se midieron con confianza
+    suficiente: es preferible callar a corregir, o a elogiar, sobre una medición poco fiable."""
 
     def __init__(self, min_confidence: float) -> None:
         self._min_confidence = min_confidence
 
+    @property
+    def min_confidence(self) -> float:
+        return self._min_confidence
+
     def evaluate(self, kb: KnowledgeBase, metrics: Mapping[str, MetricValue]) -> Evaluation:
         reliable = {k: v for k, v in metrics.items() if v.confidence >= self._min_confidence}
         fired: list[FiredRule] = []
+        strengths: list[FiredRule] = []
         unmeasured: set[str] = set()
         for rule in kb.rules:
             missing = rule.metric_ids - reliable.keys()
             if missing:
                 unmeasured |= missing
             elif _matches(rule, reliable):
-                fired.append(FiredRule(rule, {m: reliable[m].value for m in sorted(rule.metric_ids)}))
-        return Evaluation(fired=fired, unmeasured_metrics=unmeasured)
+                ids = sorted(rule.metric_ids)
+                item = FiredRule(rule, {m: reliable[m].value for m in ids}, min(reliable[m].confidence for m in ids))
+                (strengths if rule.is_strength else fired).append(item)
+        fired_ids = {f.rule.id for f in fired}
+        # Las reglas de salud mandan: no se elogia lo que convive con un error que lo contradice.
+        strengths = [s for s in strengths if not fired_ids & set(s.rule.suppressed_by)]
+        return Evaluation(fired=fired, unmeasured_metrics=unmeasured, strengths=strengths)
 
 
 def _matches(rule: Rule, metrics: Mapping[str, MetricValue]) -> bool:

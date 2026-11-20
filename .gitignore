@@ -1,5 +1,6 @@
 # Secretos y datos locales (nunca en git)
 .env
+.env.bak-*
 samples/
 models/
 data/
@@ -22,6 +23,9 @@ __pycache__/
 coverage.xml
 htmlcov/
 *.egg-info/
+
+# Logs de entrenamiento (el de YOLO ocupa ~10 MB)
+*.log
 
 # Editores / SO
 .idea/

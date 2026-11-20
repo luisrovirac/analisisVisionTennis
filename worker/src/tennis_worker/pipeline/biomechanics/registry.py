@@ -3,12 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from types import MappingProxyType
 
 from tennis_worker.contracts import MetricValue, StrokeType
 from tennis_worker.errors import UnsupportedStrokeError
 from tennis_worker.pipeline.biomechanics import metrics as m
 from tennis_worker.pipeline.biomechanics.base import Metric, MetricContext
+
+
+@dataclass(frozen=True)
+class CatalogEntry:
+    """Lo que el portal de expertos necesita saber de una métrica para componer reglas con ella."""
+
+    stroke: StrokeType
+    metric_id: str
+    label: str
+    unit: str
 
 
 class MetricRegistry:
@@ -20,6 +31,10 @@ class MetricRegistry:
 
     def metric_ids(self, stroke: StrokeType) -> set[str]:
         return {metric.id for metric in self._metrics.get(stroke, ())}
+
+    def catalog(self) -> list[CatalogEntry]:
+        return [CatalogEntry(stroke, metric.id, metric.label, metric.unit)
+                for stroke, metrics in self._metrics.items() for metric in metrics]
 
     def compute_all(self, stroke: StrokeType, ctx: MetricContext) -> dict[str, MetricValue]:
         if not self.supports(stroke):

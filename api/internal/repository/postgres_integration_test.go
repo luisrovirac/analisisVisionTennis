@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"tennisvision/api/internal/domain"
+	"tennisvision/api/internal/service"
 	"tennisvision/api/migrations"
 )
 
@@ -44,12 +45,12 @@ func newTestRepo(t *testing.T) *PostgresRepository {
 // newUser da de alta un usuario con un subject único para aislar los tests entre sí.
 func newUser(t *testing.T) string {
 	t.Helper()
-	id, err := NewPostgresUsers(newTestPool(t)).Resolve(context.Background(),
+	u, err := resolver(t).Resolve(context.Background(),
 		domain.Principal{Issuer: "https://idp.test", Subject: uuid.NewString(), Email: "u@test"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return id
+	return u.ID
 }
 
 func TestPostgresRoundTripAndTransition(t *testing.T) {
@@ -85,19 +86,68 @@ func TestPostgresGetMissing(t *testing.T) {
 	}
 }
 
-func TestUsersResolveIsStable(t *testing.T) {
+func TestPostgresDeleteOnlyOwnIdleAnalyses(t *testing.T) {
+	repo := newTestRepo(t)
+	ctx := context.Background()
+	owner := newUser(t)
+	a := domain.NewAnalysis(uuid.NewString(), owner, domain.AnalysisParams{Handedness: domain.HandRight, CameraView: domain.ViewSide},
+		time.Now().UTC())
+	if err := repo.Create(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := repo.Delete(ctx, newUser(t), a.ID); err != nil || deleted {
+		t.Fatalf("otro usuario no debe borrarlo: deleted=%v err=%v", deleted, err)
+	}
+	if _, err := repo.Transition(ctx, a.ID, domain.StatusAwaitingUpload, domain.StatusQueued); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, _ := repo.Delete(ctx, owner, a.ID); deleted {
+		t.Fatal("no debe borrarse mientras está en cola")
+	}
+	if _, err := repo.Transition(ctx, a.ID, domain.StatusQueued, domain.StatusFailed); err != nil {
+		t.Fatal(err)
+	}
+	if deleted, err := repo.Delete(ctx, owner, a.ID); err != nil || !deleted {
+		t.Fatalf("debe borrarse: deleted=%v err=%v", deleted, err)
+	}
+	if _, err := repo.Get(ctx, owner, a.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("tras borrar se esperaba ErrNotFound, got %v", err)
+	}
+}
+
+func TestUsersPreferencesDefaultAndUpdate(t *testing.T) {
 	users := NewPostgresUsers(newTestPool(t))
+	ctx := context.Background()
+	id := newUser(t)
+	if p, err := users.GetPreferences(ctx, id); err != nil || p.Handedness != domain.HandRight {
+		t.Fatalf("por defecto debe ser diestro: %+v err=%v", p, err)
+	}
+	if err := users.SavePreferences(ctx, id, domain.Preferences{Handedness: domain.HandLeft}); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := users.GetPreferences(ctx, id); err != nil || p.Handedness != domain.HandLeft {
+		t.Fatalf("tras guardar: %+v err=%v", p, err)
+	}
+}
+
+// resolver es el camino real del login: servicio de identidad sobre el repositorio Postgres.
+func resolver(t *testing.T) *service.IdentityService {
+	return service.NewIdentity(NewPostgresUsers(newTestPool(t)), nil)
+}
+
+func TestUsersResolveIsStable(t *testing.T) {
+	users := resolver(t)
 	p := domain.Principal{Issuer: "https://idp.test", Subject: uuid.NewString()}
 	first, err := users.Resolve(context.Background(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	again, err := users.Resolve(context.Background(), p)
-	if err != nil || again != first {
-		t.Fatalf("el mismo (issuer, subject) debe dar el mismo id: %s vs %s (%v)", first, again, err)
+	if err != nil || again.ID != first.ID {
+		t.Fatalf("el mismo (issuer, subject) debe dar el mismo id: %s vs %s (%v)", first.ID, again.ID, err)
 	}
 	p.Issuer = "https://otro-idp.test"
-	if other, _ := users.Resolve(context.Background(), p); other == first {
+	if other, _ := users.Resolve(context.Background(), p); other.ID == first.ID {
 		t.Fatal("el mismo sub en otro emisor es otro usuario")
 	}
 }

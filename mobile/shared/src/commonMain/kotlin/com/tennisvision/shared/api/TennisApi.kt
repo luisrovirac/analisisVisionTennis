@@ -4,10 +4,12 @@ import com.tennisvision.shared.model.Analysis
 import com.tennisvision.shared.model.AnalysisPage
 import com.tennisvision.shared.model.ApiError
 import com.tennisvision.shared.model.CreateAnalysisRequest
+import com.tennisvision.shared.model.Preferences
 import com.tennisvision.shared.model.UploadTicket
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.plugins.onUpload
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
@@ -15,6 +17,7 @@ import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.content.OutgoingContent
 import io.ktor.http.isSuccess
@@ -67,6 +70,20 @@ class TennisApi(
             parameter("limit", limit)
             cursor?.let { parameter("cursor", it) }
         }.parse()
+
+    /** Borra el análisis con su video. Un 404 cuenta como éxito: el análisis ya no existe. */
+    suspend fun delete(id: String) {
+        val response = api.delete("$base/v1/analyses/$id")
+        if (response.status != HttpStatusCode.NotFound) response.ensureSuccess()
+    }
+
+    suspend fun preferences(): Preferences = api.get("$base/v1/me/preferences").parse()
+
+    suspend fun savePreferences(preferences: Preferences): Preferences =
+        api.put("$base/v1/me/preferences") {
+            contentType(ContentType.Application.Json)
+            setBody(preferences)
+        }.parse()
 }
 
 private class StreamingBody(private val video: VideoSource) : OutgoingContent.WriteChannelContent() {
@@ -79,7 +96,12 @@ private class StreamingBody(private val video: VideoSource) : OutgoingContent.Wr
 private data class ErrorEnvelope(val error: ApiError)
 
 private suspend inline fun <reified T> HttpResponse.parse(): T {
-    if (status.isSuccess()) return body()
+    ensureSuccess()
+    return body()
+}
+
+private suspend fun HttpResponse.ensureSuccess() {
+    if (status.isSuccess()) return
     val error = runCatching { body<ErrorEnvelope>().error }.getOrNull()
     throw ApiException(error?.code ?: "HTTP_${status.value}", error?.message ?: "Error ${status.value}", status.value)
 }

@@ -17,6 +17,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 from tennis_worker.application import JobProcessor, WorkerLoop
 from tennis_worker.config import Settings
 from tennis_worker.infrastructure.analysis_repository import PostgresAnalysisRepository
+from tennis_worker.infrastructure.knowledge_store import PostgresKnowledgeStore
 from tennis_worker.infrastructure.model_store import ModelStore
 from tennis_worker.infrastructure.redis_consumer import RedisJobConsumer
 from tennis_worker.infrastructure.s3_store import S3ObjectStore
@@ -33,7 +34,11 @@ from tennis_worker.pipeline.classification import (
 )
 from tennis_worker.pipeline.classification.model import OnnxModel
 from tennis_worker.pipeline.knowledge.engine import RuleEngine
-from tennis_worker.pipeline.knowledge.repository import YamlKnowledgeBaseRepository
+from tennis_worker.pipeline.knowledge.repository import (
+    KnowledgeBaseRepository,
+    PublishedKnowledgeBaseRepository,
+    YamlKnowledgeBaseRepository,
+)
 from tennis_worker.pipeline.orchestrator import AnalysisPipeline, PipelineStages
 from tennis_worker.pipeline.pose.mediapipe_estimator import MediaPipePoseEstimator
 from tennis_worker.pipeline.prioritization import CategoryImpactPrioritizer
@@ -65,7 +70,7 @@ def build_recognizer(settings: Settings, models: ModelStore, video_reader: Video
     return StrokeRecognizer(classifiers, combiner)
 
 
-def build_pipeline(settings: Settings, registry: MetricRegistry, knowledge: YamlKnowledgeBaseRepository,
+def build_pipeline(settings: Settings, registry: MetricRegistry, knowledge: KnowledgeBaseRepository,
                    recognizer: StrokeRecognizer, obs: Instrumentation) -> AnalysisPipeline:
     return AnalysisPipeline(PipelineStages(
         video_reader=OpenCVVideoReader(max_seconds=settings.max_video_seconds),
@@ -86,14 +91,27 @@ def validate_knowledge(knowledge: YamlKnowledgeBaseRepository, registry: MetricR
         unknown = {m for rule in kb.rules for m in rule.metric_ids} - registry.metric_ids(kb.stroke)
         if unknown:
             raise SystemExit(f"Base de conocimiento {kb.label} inválida: métricas desconocidas {sorted(unknown)}")
-        if kb.validated_by is None:
-            logger.warning("base de conocimiento SIN validar por un entrenador", extra={"kb": kb.label})
+        if not any(rule.validated for rule in kb.rules):
+            logger.warning("base de conocimiento semilla SIN validar", extra={"kb": kb.label})
+
+
+def build_knowledge(settings: Settings, registry: MetricRegistry) -> KnowledgeBaseRepository:
+    """La semilla YAML se valida siempre. Con Postgres, además: se publica el catálogo de métricas,
+    se siembra la primera versión de cada golpe y se lee la versión activa (que gestiona el portal)."""
+    seed = YamlKnowledgeBaseRepository(settings.knowledge_base_dir)
+    validate_knowledge(seed, registry)
+    if settings.knowledge_source == "yaml":
+        return seed
+    store = PostgresKnowledgeStore(settings.database_url.get_secret_value())
+    store.publish_catalog(registry.catalog())
+    for label in store.seed(seed.load_all()):
+        logger.info("base de conocimiento sembrada en Postgres", extra={"kb": label})
+    return PublishedKnowledgeBaseRepository(store, registry.metric_ids, settings.knowledge_refresh_seconds)
 
 
 def build_loop(settings: Settings, obs: Instrumentation) -> WorkerLoop:
     registry = default_registry()
-    knowledge = YamlKnowledgeBaseRepository(settings.knowledge_base_dir)
-    validate_knowledge(knowledge, registry)
+    knowledge = build_knowledge(settings, registry)
     s3 = boto3.client(
         "s3", endpoint_url=settings.s3_endpoint_url, region_name=settings.s3_region,
         aws_access_key_id=settings.s3_access_key, aws_secret_access_key=settings.s3_secret_key.get_secret_value(),

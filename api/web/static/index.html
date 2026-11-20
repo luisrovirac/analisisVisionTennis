@@ -10,8 +10,9 @@
 <main>
   <header>
     <h1>Análisis de golpe</h1>
-    <p class="lead">Sube un video de tu golpe y recibe los errores ordenados del más simple al más complejo, cada uno con su corrección.</p>
+    <p class="lead">Sube un video de tu golpe y recibe lo que haces bien, lo principal a corregir y un plan de ejercicios.</p>
     <div id="session" class="session" hidden>
+      <a id="portal-link" href="portal.html" hidden>Portal profesional</a>
       <span id="session-user"></span>
       <button id="logout" type="button" class="secondary">Cerrar sesión</button>
     </div>
@@ -61,6 +62,11 @@
     <label class="file">Video (MP4 o MOV)
       <input type="file" name="video" accept="video/*" required>
     </label>
+    <label class="check">
+      <input type="checkbox" name="expert_review_allowed" checked>
+      <span>Permitir que expertos vean este video.
+        <span class="muted">Solo lo usan para comprobar y mejorar las reglas del sistema; tu análisis siempre es automático.</span></span>
+    </label>
     <button type="submit">Analizar</button>
   </form>
 
@@ -71,8 +77,25 @@
 
   <section id="result" hidden>
     <div id="warnings"></div>
+    <div id="diagnosis" class="card summary" hidden></div>
+    <section id="strengths-section" hidden>
+      <h2>Lo que haces bien</h2>
+      <ul id="strengths"></ul>
+    </section>
     <h2>Errores detectados <span class="muted">(corrige en este orden)</span></h2>
     <ol id="findings"></ol>
+    <section id="plan-section" class="card" hidden>
+      <h2>Tu plan de ejercicios</h2>
+      <ol id="plan"></ol>
+      <p id="plan-next" class="muted"></p>
+    </section>
+    <p id="reliability" class="muted"></p>
+    <p id="knowledge-status" class="muted"></p>
+    <label class="check">
+      <input type="checkbox" id="result-expert-review">
+      <span>Permitir que expertos vean este video <span class="muted">(puedes cambiarlo cuando quieras)</span></span>
+    </label>
+    <p class="muted disclaimer">Recomendaciones de entrenamiento deportivo, no diagnóstico médico. Si sientes dolor, consulta a un fisioterapeuta.</p>
     <details class="card">
       <summary>Métricas medidas</summary>
       <table id="metrics"><thead><tr><th>Métrica</th><th>Valor</th><th>Confianza</th></tr></thead><tbody></tbody></table>

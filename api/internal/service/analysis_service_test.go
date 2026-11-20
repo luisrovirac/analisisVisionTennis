@@ -76,10 +76,39 @@ func (r *fakeRepo) Transition(_ context.Context, id string, from, to domain.Stat
 	return true, nil
 }
 
+func (r *fakeRepo) Delete(_ context.Context, ownerID, id string) (bool, error) {
+	a, ok := r.items[id]
+	if !ok || *a.UserID != ownerID || !a.Deletable() {
+		return false, nil
+	}
+	delete(r.items, id)
+	return true, nil
+}
+
+func (r *fakeRepo) SetExpertReview(_ context.Context, ownerID, id string, allowed bool) (bool, error) {
+	a, ok := r.items[id]
+	if !ok || *a.UserID != ownerID {
+		return false, nil
+	}
+	a.Params.ExpertReviewAllowed = allowed
+	r.items[id] = a
+	return true, nil
+}
+
 type fakeStore struct {
 	info       domain.ObjectInfo
 	statErr    error
 	presignErr error
+	removeErr  error
+	removed    []string
+}
+
+func (s *fakeStore) Remove(_ context.Context, keys ...string) error {
+	if s.removeErr != nil {
+		return s.removeErr
+	}
+	s.removed = append(s.removed, keys...)
+	return nil
 }
 
 func (s *fakeStore) PresignPut(_ context.Context, key string, _ time.Duration) (string, error) {
@@ -267,6 +296,68 @@ func TestOtherUsersCannotSeeOrSubmit(t *testing.T) {
 	}
 	if len(f.pub.published) != 0 || f.repo.items[testID].Status != domain.StatusAwaitingUpload {
 		t.Fatal("un usuario ajeno no debe poder encolar el análisis")
+	}
+}
+
+func (f fixture) setStatus(s domain.Status) {
+	a := f.repo.items[testID]
+	a.Status = s
+	f.repo.items[testID] = a
+}
+
+func TestDeleteRemovesAnalysisAndFiles(t *testing.T) {
+	for _, status := range []domain.Status{domain.StatusAwaitingUpload, domain.StatusCompleted, domain.StatusFailed} {
+		t.Run(string(status), func(t *testing.T) {
+			f := newFixture()
+			f.createAnalysis(t)
+			f.setStatus(status)
+			if err := f.svc.Delete(context.Background(), alice, testID); err != nil {
+				t.Fatal(err)
+			}
+			want := []string{"videos/" + testID, "poses/" + testID + ".json"}
+			if _, exists := f.repo.items[testID]; exists || !slices.Equal(f.store.removed, want) {
+				t.Fatalf("existe=%v borrados=%v", exists, f.store.removed)
+			}
+		})
+	}
+}
+
+func TestDeleteRejectsAnalysisInProgress(t *testing.T) {
+	for _, status := range []domain.Status{domain.StatusQueued, domain.StatusProcessing} {
+		f := newFixture()
+		f.createAnalysis(t)
+		f.setStatus(status)
+		if err := f.svc.Delete(context.Background(), alice, testID); !errors.Is(err, domain.ErrAnalysisBusy) {
+			t.Fatalf("%s: se esperaba ErrAnalysisBusy, got %v", status, err)
+		}
+		if _, exists := f.repo.items[testID]; !exists || len(f.store.removed) != 0 {
+			t.Fatalf("%s: no debe borrar nada mientras se procesa", status)
+		}
+	}
+}
+
+func TestDeleteOfOthersOrMissingIsNotFound(t *testing.T) {
+	f := newFixture()
+	f.createAnalysis(t)
+	for _, tc := range []struct{ owner, id string }{{bob, testID}, {alice, "xyz"}, {alice, "00000000-0000-4000-8000-000000000009"}} {
+		if err := f.svc.Delete(context.Background(), tc.owner, tc.id); !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("%+v: se esperaba ErrNotFound, got %v", tc, err)
+		}
+	}
+	if _, exists := f.repo.items[testID]; !exists || len(f.store.removed) != 0 {
+		t.Fatal("un usuario ajeno no debe poder borrar el análisis")
+	}
+}
+
+func TestDeleteKeepsRowWhenStorageFails(t *testing.T) {
+	f := newFixture()
+	f.createAnalysis(t)
+	f.store.removeErr = errors.New("s3 caído")
+	if err := f.svc.Delete(context.Background(), alice, testID); err == nil {
+		t.Fatal("se esperaba error")
+	}
+	if _, exists := f.repo.items[testID]; !exists {
+		t.Fatal("la fila debe seguir para poder reintentar el borrado")
 	}
 }
 

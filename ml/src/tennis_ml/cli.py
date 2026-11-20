@@ -60,7 +60,8 @@ def _yolo_train() -> None:
     samples = read_labels(c.LABELS_CSV)
     export_dir = train_and_export(c.YOLO_DATASET, p, c.YOLO_DIR, c.YOLO_EXPORT)
     write_meta(export_dir, p, p["classes"], c.LABELS_CSV, p["version"] or "yolo-dev")
-    metrics = evaluate_clips(export_dir, samples, c.RAW_DIR / p["dataset"]["name"], c.POSES_DIR)
+    metrics = evaluate_clips(export_dir, samples, c.RAW_DIR / p["dataset"]["name"], c.POSES_DIR,
+                             p["classes"], p["pose_seq"]["target_precision"])
     c.METRICS_DIR.mkdir(parents=True, exist_ok=True)
     (c.METRICS_DIR / "yolo.json").write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
 
@@ -80,6 +81,8 @@ def main(argv: list[str] | None = None) -> None:
     toy.add_argument("--players", type=int, default=10)
     pub = sub.add_parser("publish", help="sube un modelo exportado al bucket del worker")
     pub.add_argument("export_dir", type=Path)
+    diag = sub.add_parser("diagnose", help="analiza confusión crítica y calibración sin re-entrenar")
+    diag.add_argument("--out", type=Path, default=None, help="ruta opcional para guardar el informe JSON")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     if args.stage == "make-toy":
@@ -90,5 +93,9 @@ def main(argv: list[str] | None = None) -> None:
         from tennis_ml.publish import main as publish_main
 
         publish_main(args.export_dir)
+    elif args.stage == "diagnose":
+        from tennis_ml.diagnostics import diagnose, print_report
+
+        print_report(diagnose(c.FEATURES_NPZ, c.POSE_SEQ_DIR, c.METRICS_DIR / "pose_seq.json"), args.out)
     else:
         STAGES[args.stage]()

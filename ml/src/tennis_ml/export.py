@@ -7,6 +7,8 @@ probabilidades que PyTorch: si la exportación o el preprocesado divergieran, la
 from __future__ import annotations
 
 import json
+import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -20,13 +22,29 @@ from tennis_worker.pipeline.classification.model import META_FILE, MODEL_FILE, O
 
 from tennis_ml.common import md5_file
 from tennis_ml.datasets import read_labels
-from tennis_ml.evaluation import baselines, low_support_classes, per_class_f1, split_summary
+from tennis_ml.evaluation import baselines, critical_confusion, low_support_classes, per_class_f1, split_summary
 from tennis_ml.features import Split, load
 from tennis_ml.model import StrokeGRU
 from tennis_ml.train import RUN_FILE, WEIGHTS_FILE, predict_proba
 
 REGISTERED_MODEL = "stroke-pose-seq"
 OPSET = 17
+# El modelo puede saturar el softmax: 0.99 era demasiado bajo y forzaba el fallback.
+THRESHOLD_GRID = tuple(float(v) for v in (
+    *np.round(np.arange(0.3, 1.0, 0.01), 2), 0.995, 0.999, 0.9992, 0.9995, 0.9997, 0.9999))
+FALLBACK_THRESHOLD = 0.9999
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ThresholdCalibration:
+    """Resultado de calibrar el umbral: hace explícito cuándo no se alcanzó la precisión objetivo."""
+
+    threshold: float
+    target_precision: float
+    achieved_precision: float
+    reached_target: bool
+    used_fallback: bool
 
 
 def export(features_path: Path, train_dir: Path, params: dict[str, Any], out_dir: Path, metrics_path: Path,
@@ -37,8 +55,20 @@ def export(features_path: Path, train_dir: Path, params: dict[str, Any], out_dir
     model = StrokeGRU(splits["train"].x.shape[2], len(classes), p["hidden"], p["layers"], p["dropout"])
     model.load_state_dict(torch.load(train_dir / WEIGHTS_FILE))
     model.eval()
-    threshold = calibrate_threshold(predict_proba(model, splits["val"].x), splits["val"].y, p["target_precision"])
+    calibration = calibrate_threshold_with_report(
+        predict_proba(model, splits["val"].x), splits["val"].y, p["target_precision"])
+    threshold = calibration.threshold
+    if not calibration.reached_target:
+        logger.warning("umbral NO calibrado: objetivo %.2f, precisión en validación %.4f, umbral %.2f%s",
+                       calibration.target_precision, calibration.achieved_precision, threshold,
+                       " (fallback)" if calibration.used_fallback else "")
     metrics = evaluate(predict_proba(model, splits["test"].x), splits["test"].y, classes, threshold)
+    metrics.update({
+        "threshold_target_precision": calibration.target_precision,
+        "threshold_reached_target": calibration.reached_target,
+        "threshold_used_fallback": calibration.used_fallback,
+        "val_precision_at_threshold": round(calibration.achieved_precision, 4),
+    })
     if metrics["test_size"]:
         metrics["baselines"] = baselines(splits, params["dataset"]["seed"])
     if labels_path is not None:
@@ -55,14 +85,36 @@ def export(features_path: Path, train_dir: Path, params: dict[str, Any], out_dir
 
 
 def calibrate_threshold(probs: np.ndarray, y: np.ndarray, target_precision: float) -> float:
-    """Menor umbral cuya precisión sobre las predicciones aceptadas alcanza el objetivo en validación.
-    Por debajo del umbral el worker responde UNSUPPORTED_STROKE en lugar de arriesgarse a equivocarse."""
+    """Umbral mínimo que alcanza la precisión objetivo; compatible con llamadas antiguas."""
+    return calibrate_threshold_with_report(probs, y, target_precision).threshold
+
+
+def calibrate_threshold_with_report(probs: np.ndarray, y: np.ndarray,
+                                    target_precision: float) -> ThresholdCalibration:
+    """Calibra el umbral y explica si tuvo que recurrir al fallback.
+
+    Por debajo del umbral el worker responde UNSUPPORTED_STROKE en lugar de arriesgarse a equivocarse.
+    Si ningún umbral alcanza `target_precision` en validación, se devuelve 0.99 pero se marca
+    `reached_target=False`: el modelo está sobreconfiado y ese número NO es una garantía.
+    """
     confidence, correct = probs.max(axis=1), probs.argmax(axis=1) == y
-    for threshold in np.round(np.arange(0.3, 1.0, 0.01), 2):
+    best: ThresholdCalibration | None = None
+    for threshold in THRESHOLD_GRID:
         accepted = confidence >= threshold
-        if accepted.any() and correct[accepted].mean() >= target_precision:
-            return float(threshold)
-    return 0.99
+        if not accepted.any():
+            continue
+        precision = float(correct[accepted].mean())
+        candidate = ThresholdCalibration(float(threshold), target_precision, precision,
+                                         precision >= target_precision, False)
+        if candidate.reached_target:
+            return candidate
+        # En empate se prefiere el umbral más alto: es el más selectivo con la misma precisión.
+        if best is None or candidate.achieved_precision >= best.achieved_precision:
+            best = candidate
+    if best is None:  # ninguna predicción alcanza siquiera el umbral más bajo
+        return ThresholdCalibration(FALLBACK_THRESHOLD, target_precision, 0.0, False, True)
+    # No se alcanzó el objetivo: se devuelve el mejor umbral disponible, pero marcado.
+    return ThresholdCalibration(best.threshold, target_precision, best.achieved_precision, False, True)
 
 
 def evaluate(probs: np.ndarray, y: np.ndarray, classes: list[str], threshold: float) -> dict[str, Any]:
@@ -76,6 +128,7 @@ def evaluate(probs: np.ndarray, y: np.ndarray, classes: list[str], threshold: fl
         "test_macro_f1": round(float(f1_score(y, predicted, average="macro", zero_division=0)), 4),
         "test_per_class": per_class,
         "test_low_support_classes": low_support_classes(per_class),
+        "critical_confusion": critical_confusion(y, predicted, classes),
         "test_accuracy": round(float((predicted == y).mean()), 4),
         "threshold": threshold,
         "coverage_at_threshold": round(float(accepted.mean()), 4),
@@ -108,6 +161,7 @@ def _default_version(run_id: str) -> str:
 def _flat_metrics(metrics: dict[str, Any]) -> dict[str, float]:
     """Valores numéricos para MLflow, con nombres planos (test_f1_other, baseline_logreg_macro_f1, ...)."""
     flat = {k: v for k, v in metrics.items() if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    flat["threshold_reached_target"] = int(bool(metrics.get("threshold_reached_target")))
     for cls, v in metrics.get("test_per_class", {}).items():
         flat[f"test_f1_{cls}"] = v["f1"]
     for name, scores in metrics.get("baselines", {}).items():

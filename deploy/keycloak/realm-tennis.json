@@ -6,7 +6,10 @@
   "loginWithEmailAllowed": true,
   "resetPasswordAllowed": false,
   "accessTokenLifespan": 300,
-  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionIdleTimeout": 2592000,
+  "ssoSessionMaxLifespan": 7776000,
+  "clientSessionIdleTimeout": 0,
+  "clientSessionMaxLifespan": 0,
   "clients": [
     {
       "clientId": "tennis-web",

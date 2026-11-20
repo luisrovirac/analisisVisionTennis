@@ -54,6 +54,9 @@ type AnalysisParams struct {
 	StrokeType StrokeType
 	Handedness Handedness
 	CameraView CameraView
+	// ExpertReviewAllowed: checkbox "Permitir que expertos vean este video" (marcado por defecto).
+	// Solo sirve para el control de calidad de las reglas; el análisis siempre es automático.
+	ExpertReviewAllowed bool
 }
 
 // WithDefaults completa los campos opcionales (Postel: tolerante en la entrada).
@@ -106,6 +109,17 @@ type Analysis struct {
 // Cursor devuelve la posición de este análisis en un listado paginado.
 func (a Analysis) Cursor() Cursor {
 	return Cursor{CreatedAt: a.CreatedAt, ID: a.ID}
+}
+
+// Deletable es falso mientras el worker puede estar escribiendo resultados del análisis.
+func (a Analysis) Deletable() bool {
+	return a.Status != StatusQueued && a.Status != StatusProcessing
+}
+
+// ObjectKeys lista los objetos del almacenamiento que pertenecen al análisis: el video
+// subido y la secuencia de pose que escribe el worker (contracts/pose_sequence.schema.json).
+func (a Analysis) ObjectKeys() []string {
+	return []string{a.VideoKey, "poses/" + a.ID + ".json"}
 }
 
 // NewAnalysis crea un análisis que pertenece a ownerID (users.id).

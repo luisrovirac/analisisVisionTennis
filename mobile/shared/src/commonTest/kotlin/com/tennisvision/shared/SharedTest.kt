@@ -12,6 +12,11 @@ import com.tennisvision.shared.auth.TokenStore
 import com.tennisvision.shared.auth.Tokens
 import com.tennisvision.shared.model.AnalysisStatus
 import com.tennisvision.shared.model.CreateAnalysisRequest
+import com.tennisvision.shared.model.Handedness
+import com.tennisvision.shared.model.Preferences
+import com.tennisvision.shared.model.Report
+import com.tennisvision.shared.api.TennisJson
+import kotlinx.serialization.encodeToString
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.MockRequestHandleScope
 import io.ktor.client.engine.mock.respond
@@ -20,6 +25,7 @@ import io.ktor.client.request.HttpResponseData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
 import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.async
@@ -118,6 +124,38 @@ class AnalysisFlowTest {
     }
 }
 
+class AccountApiTest {
+    @Test
+    fun deleteSendsDeleteAndToleratesAlreadyDeleted() = runTest {
+        var status = HttpStatusCode.NoContent
+        val h = Harness { respond("", status) }
+        h.api.delete("a1")
+        assertEquals(HttpMethod.Delete, h.requests.last().method)
+        assertEquals("/v1/analyses/a1", h.requests.last().url.encodedPath)
+        status = HttpStatusCode.NotFound
+        h.api.delete("a1") // ya no existe: el objetivo se cumple, no es un error
+    }
+
+    @Test
+    fun deleteBusyAnalysisSurfacesConflict() = runTest {
+        val h = Harness { json("""{"error":{"code":"ANALYSIS_BUSY","message":"Espera."}}""", HttpStatusCode.Conflict) }
+        assertEquals("ANALYSIS_BUSY", assertFailsWith<ApiException> { h.api.delete("a1") }.code)
+    }
+
+    @Test
+    fun preferencesAreReadAndSaved() = runTest {
+        var stored = """{"handedness":"right"}"""
+        val h = Harness { request ->
+            if (request.method == HttpMethod.Put) stored = (request.body as TextContent).text
+            json(stored)
+        }
+        assertEquals(Handedness.RIGHT, h.api.preferences().handedness)
+        assertEquals(Handedness.LEFT, h.api.savePreferences(Preferences(Handedness.LEFT)).handedness)
+        assertEquals(Handedness.LEFT, h.api.preferences().handedness)
+        assertTrue(h.requests.all { it.url.encodedPath == "/v1/me/preferences" })
+    }
+}
+
 class AuthRepositoryTest {
     @Test
     fun refreshesProactivelyBeforeExpiry() = runTest {
@@ -153,3 +191,35 @@ class AuthRepositoryTest {
         assertTrue(h.requests.isEmpty())
     }
 }
+
+class ReportContractTest {
+    @Test
+    fun report11FieldsAreReadAndOldReportsStillDecode() {
+        val v11 = """{"stroke_type":"forehand","metrics":[],"quality":{"pose_detection_rate":0.9,"warnings":[]},
+            "findings":[{"rule_id":"FH-1","rank":1,"category":"fundamental","title":"t","explanation":"e","correction":"c",
+              "drills":[],"evidence":{},"validated":false}],
+            "strengths":[{"rule_id":"FH-STR-1","rank":1,"category":"fundamental","title":"Buen giro","why_it_matters":"w",
+              "how_to_maintain":"m","evidence":{},"confidence":0.9}],
+            "diagnosis":{"summary":"s","root_cause_rule_id":"FH-1","contributing_factors":[],"strengths_to_leverage":[],
+              "limitations":[],"unmeasurable":[]},
+            "drill_plan":{"weeks":4,"reanalyze_after_weeks":2,"items":[{"week":1,"focus_rule_id":"FH-1","focus":"t","drills":["d"]}]},
+            "reliability":{"score":0.8,"level":"high","reasons":[]},
+            "knowledge_status":{"status":"provisional","validated_rules":0,"total_rules":15}}"""
+        val report = TennisJson.decodeFromString<Report>(v11)
+        assertEquals("Buen giro", report.strengths.single().title)
+        assertEquals("FH-1", report.diagnosis?.rootCauseRuleId)
+        assertEquals(false, report.findings.single().validated)
+        assertEquals(4, report.drillPlan?.weeks)
+
+        val v10 = """{"stroke_type":"forehand","metrics":[],"findings":[],"quality":{"pose_detection_rate":0.9,"warnings":[]}}"""
+        val old = TennisJson.decodeFromString<Report>(v10)
+        assertTrue(old.strengths.isEmpty() && old.diagnosis == null && old.drillPlan == null)
+    }
+
+    @Test
+    fun expertReviewDefaultsToAllowedAndIsSentWhenUnchecked() {
+        assertFalse(TennisJson.encodeToString(CreateAnalysisRequest()).contains("expert_review_allowed\":false"))
+        assertTrue(TennisJson.encodeToString(CreateAnalysisRequest(expertReviewAllowed = false)).contains("\"expert_review_allowed\":false"))
+    }
+}
+

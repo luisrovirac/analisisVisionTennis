@@ -2,7 +2,9 @@
 
 // Cliente OIDC mínimo: Authorization Code + PKCE (S256) para un cliente público.
 // La API publica el issuer y el client_id en /auth/config; los endpoints salen del discovery.
-// Los tokens viven en sessionStorage: se pierden al cerrar la pestaña, a propósito.
+// Los tokens viven en localStorage para que la sesión sobreviva a cerrar la pestaña o el
+// navegador; su duración real la fija el IdP (caducidad del refresh token). El estado PKCE,
+// que solo dura un login, sigue en sessionStorage.
 const Auth = (() => {
   const TOKENS_KEY = "tennis.tokens";
   const PKCE_KEY = "tennis.pkce";
@@ -62,14 +64,14 @@ const Auth = (() => {
     try {
       return (await requestTokens({ grant_type: "refresh_token", refresh_token: tokens.refresh_token })).access_token;
     } catch {
-      sessionStorage.removeItem(TOKENS_KEY);
+      localStorage.removeItem(TOKENS_KEY);
       return null;
     }
   }
 
   function logout() {
     const tokens = load();
-    sessionStorage.removeItem(TOKENS_KEY);
+    localStorage.removeItem(TOKENS_KEY);
     if (!endpoints?.end_session_endpoint) return location.reload();
     const query = new URLSearchParams({ client_id: config.client_id, post_logout_redirect_uri: redirectUri() });
     if (tokens?.id_token) query.set("id_token_hint", tokens.id_token);
@@ -99,13 +101,13 @@ const Auth = (() => {
       id_token: t.id_token || previous?.id_token,
       expires_at: Date.now() + t.expires_in * 1000,
     };
-    sessionStorage.setItem(TOKENS_KEY, JSON.stringify(tokens));
+    localStorage.setItem(TOKENS_KEY, JSON.stringify(tokens));
     return tokens;
   }
 
   function load() {
     try {
-      return JSON.parse(sessionStorage.getItem(TOKENS_KEY) || "null");
+      return JSON.parse(localStorage.getItem(TOKENS_KEY) || "null");
     } catch {
       return null;
     }

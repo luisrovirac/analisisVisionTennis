@@ -110,3 +110,29 @@ def test_low_confidence_metric_blocks_rule() -> None:
 def test_missing_metric_is_reported_as_unmeasured() -> None:
     base = kb(rule("R", {"all": [{"metric": "ghost", "op": "lt", "value": 10}]}))
     assert RuleEngine(0.5).evaluate(base, {}).unmeasured_metrics == {"ghost"}
+
+
+def test_polarity_requires_matching_texts_and_references() -> None:
+    when = {"all": [{"metric": "m", "op": "lt", "value": 1}]}
+    strength = rule("S", when) | {"polarity": "strength", "correction": ""}
+    with pytest.raises(ValidationError):
+        kb(strength)  # falta why_it_matters
+    with pytest.raises(ValidationError):
+        kb(rule("E", when) | {"caused_by": ["NOPE"]})
+    with pytest.raises(ValidationError):
+        kb(rule("E", when) | {"suppressed_by": ["E2"]}, rule("E2", when))  # solo en fortalezas
+    assert kb(rule("E", when), strength | {"why_it_matters": "w", "suppressed_by": ["E"]}).strengths
+
+
+def test_seed_yaml_matches_shared_json_schema() -> None:
+    """contracts/knowledge_base.schema.json es la referencia común para worker, API y portal."""
+    import json
+
+    import yaml
+
+    from tests.conftest import CONTRACTS_DIR
+
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads((CONTRACTS_DIR / "knowledge_base.schema.json").read_text(encoding="utf-8"))
+    for path in sorted(KNOWLEDGE_DIR.glob("*.yaml")):
+        jsonschema.validate(yaml.safe_load(path.read_text(encoding="utf-8")), schema)

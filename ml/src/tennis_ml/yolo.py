@@ -18,7 +18,7 @@ from typing import Any
 import cv2
 import numpy as np
 import yaml
-from sklearn.metrics import f1_score
+from numpy.typing import NDArray
 from tennis_worker.contracts import JobMessage
 from tennis_worker.pipeline.classification import ClassificationContext, YoloFrameClassifier
 from tennis_worker.pipeline.classification.model import META_FILE, MODEL_FILE, OnnxModel
@@ -27,6 +27,7 @@ from tennis_worker.pipeline.video import OpenCVVideoReader
 
 from tennis_ml.common import md5_file
 from tennis_ml.datasets import Sample
+from tennis_ml.export import calibrate_threshold_with_report, evaluate
 
 BOX_MARGIN = 0.15
 SPLIT_DIRS = {"train": "train", "val": "val", "test": "test"}
@@ -84,7 +85,9 @@ def train_and_export(dataset_dir: Path, params: dict[str, Any], train_dir: Path,
     model = YOLO(p["base"])
     model.train(data=str(dataset_dir / "dataset.yaml"), epochs=p["epochs"], imgsz=p["imgsz"], device=p["device"],
                 project=str(train_dir), name="run", exist_ok=True, seed=params["dataset"]["seed"])
-    onnx_path = Path(model.export(format="onnx", imgsz=p["imgsz"], opset=17))
+    # simplify=False evita que Ultralytics instale onnxslim en caliente: su dependencia exige
+    # numpy>=2, que rompe onnxruntime 1.18 (numpy<2) y al resto del worker (ver pyproject.toml).
+    onnx_path = Path(model.export(format="onnx", imgsz=p["imgsz"], opset=17, simplify=False))
     export_dir.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(onnx_path, export_dir / MODEL_FILE)
     return export_dir
@@ -96,19 +99,43 @@ def write_meta(export_dir: Path, params: dict[str, Any], classes: list[str], lab
     (export_dir / META_FILE).write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
 
-def evaluate_clips(export_dir: Path, samples: list[Sample], raw_dir: Path, poses_dir: Path) -> dict[str, Any]:
-    """Precisión por clip en test con el mismo clasificador que usa el worker en producción."""
-    model = OnnxModel(export_dir, "yolo")
+def _clip_probabilities(model: OnnxModel, samples: list[Sample], raw_dir: Path, poses_dir: Path,
+                        classes: list[str], split: str) -> tuple[NDArray[np.float64], NDArray[np.int64]]:
+    """Puntuaciones del clasificador del worker por clip, en el formato que espera `export.evaluate`."""
     classifier = YoloFrameClassifier(model, OpenCVVideoReader(max_seconds=60))
-    truth, predicted = [], []
-    for sample in (s for s in samples if s.split == "test"):
+    known = {label: index for index, label in enumerate(classes)}
+    probs, truth = [], []
+    for sample in (s for s in samples if s.split == split):
         pose = from_artifact(json.loads((poses_dir / f"{sample.id}.json").read_text(encoding="utf-8")))
         job = JobMessage(schema_version="1.1", analysis_id=sample.id, video_key="", handedness="right",
                          camera_view="side")
-        result = classifier.classify(ClassificationContext(pose, raw_dir / sample.source, job))
-        truth.append(sample.label)
-        predicted.append(result.top[0])
-    if not truth:
+        label, confidence = classifier.classify(ClassificationContext(pose, raw_dir / sample.source, job)).top
+        row = np.zeros(len(classes), dtype=np.float64)
+        if label in known:
+            row[known[label]] = confidence  # sigmoides independientes: solo hace falta la ganadora
+        probs.append(row)
+        truth.append(known.get(sample.label, -1))
+    return np.stack(probs) if probs else np.zeros((0, len(classes))), np.array(truth, dtype=np.int64)
+
+
+def evaluate_clips(export_dir: Path, samples: list[Sample], raw_dir: Path, poses_dir: Path,
+                   classes: list[str], target_precision: float = 0.95) -> dict[str, Any]:
+    """Evalúa YOLO igual que `pose_seq`: F1 por clase, confusión crítica y umbral calibrado en val.
+
+    Las puntuaciones son las del `YoloFrameClassifier` que usa el worker en producción, así que
+    `STROKE_MIN_CONFIDENCE` significa lo mismo aquí que en el modelo de pose.
+    """
+    model = OnnxModel(export_dir, "yolo")
+    val_probs, val_y = _clip_probabilities(model, samples, raw_dir, poses_dir, classes, "val")
+    calibration = calibrate_threshold_with_report(val_probs, val_y, target_precision)
+    test_probs, test_y = _clip_probabilities(model, samples, raw_dir, poses_dir, classes, "test")
+    if not len(test_y):
         return {"test_size": 0}
-    return {"test_size": len(truth), "test_accuracy": float(np.mean(np.array(truth) == np.array(predicted))),
-            "test_macro_f1": float(f1_score(truth, predicted, average="macro", zero_division=0))}
+    metrics = evaluate(test_probs, test_y, classes, calibration.threshold)
+    metrics.update({
+        "threshold_target_precision": calibration.target_precision,
+        "threshold_reached_target": calibration.reached_target,
+        "threshold_used_fallback": calibration.used_fallback,
+        "val_precision_at_threshold": round(calibration.achieved_precision, 4),
+    })
+    return metrics

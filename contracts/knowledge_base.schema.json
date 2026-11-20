@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tennis-vision/knowledge_base/2.0",
+  "title": "KnowledgeBase",
+  "description": "Base de conocimiento de un golpe. Es el formato de la semilla YAML (worker/knowledge_base/*.yaml) y del snapshot inmutable de cada versión publicada (kb_releases.snapshot). La validan el worker (pipeline/knowledge/models.py) y la API (internal/domain/knowledge.go); además, cada métrica citada debe existir en el catálogo del golpe (metric_catalog).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["stroke", "version", "rules"],
+  "properties": {
+    "stroke": {"enum": ["forehand", "backhand", "serve", "volley"]},
+    "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
+    "validated_by": {"type": ["string", "null"], "description": "Legado del YAML. La validación real es por regla (rules[].validated)."},
+    "rules": {"type": "array", "items": {"$ref": "#/$defs/rule"}}
+  },
+  "$defs": {
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "op", "value"],
+      "properties": {
+        "metric": {"type": "string", "minLength": 1},
+        "op": {"enum": ["lt", "lte", "gt", "gte", "eq", "between"]},
+        "value": {
+          "oneOf": [
+            {"type": "number"},
+            {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2}
+          ],
+          "description": "Número; [min, max] solo con op = between."
+        }
+      }
+    },
+    "conditions": {"type": "array", "items": {"$ref": "#/$defs/condition"}, "minItems": 1},
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "category", "impact", "difficulty", "when", "explanation"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[A-Z0-9][A-Z0-9-]{1,39}$"},
+        "title": {"type": "string", "minLength": 1},
+        "category": {"enum": ["fundamental", "sincronizacion"]},
+        "polarity": {"enum": ["error", "strength"], "default": "error"},
+        "impact": {"type": "integer", "minimum": 1, "maximum": 5},
+        "difficulty": {"type": "integer", "minimum": 1, "maximum": 5},
+        "when": {
+          "type": "object",
+          "additionalProperties": false,
+          "oneOf": [{"required": ["all"]}, {"required": ["any"]}],
+          "properties": {"all": {"$ref": "#/$defs/conditions"}, "any": {"$ref": "#/$defs/conditions"}}
+        },
+        "explanation": {"type": "string", "minLength": 1},
+        "correction": {"type": "string", "description": "Obligatorio si polarity = error."},
+        "why_it_matters": {"type": "string", "description": "Obligatorio si polarity = strength."},
+        "how_to_maintain": {"type": "string"},
+        "drills": {"type": "array", "items": {"type": "string"}},
+        "caused_by": {"type": "array", "items": {"type": "string"}, "description": "Solo errores: ids de errores que explican este (causa raíz)."},
+        "suppressed_by": {"type": "array", "items": {"type": "string"}, "description": "Solo fortalezas: no se elogia si aparece alguno de estos errores."},
+        "references": {"type": "array", "items": {"type": "string"}},
+        "validated": {"type": "boolean", "description": "Lo fija la API al aprobar un validador. Un experto no puede marcarlo."}
+      }
+    }
+  }
+}

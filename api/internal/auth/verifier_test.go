@@ -41,7 +41,7 @@ func newIdP(t *testing.T) idp {
 }
 
 func (p idp) token(iss, aud, sub string, exp time.Time) string {
-	claims := fmt.Sprintf(`{"iss":%q,"aud":%q,"sub":%q,"email":"a@example.com","exp":%d}`, iss, aud, sub, exp.Unix())
+	claims := fmt.Sprintf(`{"iss":%q,"aud":%q,"sub":%q,"email":"a@example.com","email_verified":true,"exp":%d}`, iss, aud, sub, exp.Unix())
 	return oidctest.SignIDToken(p.priv, keyID, oidc.RS256, claims)
 }
 
@@ -63,7 +63,7 @@ func TestVerifyAcceptsValidToken(t *testing.T) {
 	p := newIdP(t)
 	for mode, v := range newVerifiers(t, p) {
 		got, err := v.Verify(context.Background(), p.token(p.url, audience, "user-1", time.Now().Add(time.Hour)))
-		want := domain.Principal{Issuer: p.url, Subject: "user-1", Email: "a@example.com"}
+		want := domain.Principal{Issuer: p.url, Subject: "user-1", Email: "a@example.com", EmailVerified: true}
 		if err != nil || got != want {
 			t.Errorf("%s: got=%+v err=%v", mode, got, err)
 		}

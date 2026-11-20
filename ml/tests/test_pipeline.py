@@ -10,17 +10,18 @@ from typing import Any
 import mlflow
 import numpy as np
 import pytest
+import torch
 from tennis_worker.contracts import JobMessage
 from tennis_worker.pipeline.classification import ClassificationContext, PoseSequenceClassifier
 from tennis_worker.pipeline.classification.model import OnnxModel
 from tennis_worker.pipeline.pose.serialization import from_artifact
 
 from tennis_ml.datasets import Sample, prepare, read_labels, split_by_player, write_labels
-from tennis_ml.evaluation import low_support_classes, per_class_f1, split_summary
-from tennis_ml.export import calibrate_threshold, export
+from tennis_ml.evaluation import critical_confusion, low_support_classes, per_class_f1, split_summary
+from tennis_ml.export import calibrate_threshold, calibrate_threshold_with_report, export
 from tennis_ml.features import build, load
 from tennis_ml.toy import make_toy
-from tennis_ml.train import train
+from tennis_ml.train import _augment, _class_weights, train
 
 CLASSES = ["forehand", "backhand", "serve", "volley", "other"]
 
@@ -62,6 +63,42 @@ def test_calibrated_threshold_reaches_target_precision() -> None:
     assert calibrate_threshold(probs, y, target_precision=1.0) == pytest.approx(0.61)
 
 
+def test_calibration_reports_fallback_when_target_is_unreachable() -> None:
+    probs = np.array([[0.99, 0.01]] * 10)  # sobreconfiado: 9 aciertos de 10, nunca llega al 95 %
+    y = np.array([0] * 9 + [1])
+    report = calibrate_threshold_with_report(probs, y, target_precision=0.95)
+    assert report.threshold == pytest.approx(0.99)
+    assert report.used_fallback and not report.reached_target
+    assert report.achieved_precision == pytest.approx(0.9)
+
+
+def test_critical_confusion_counts_smash_as_serve() -> None:
+    y = np.array([4, 4, 3, 4])
+    predicted = np.array([2, 4, 3, 0])
+    classes = ["forehand", "backhand", "serve", "volley", "other"]
+    result = critical_confusion(y, predicted, classes)
+    assert result["count"] == 1 and result["support"] == 3
+    assert result["rate"] == pytest.approx(1 / 3, abs=1e-3)
+    assert critical_confusion(y, predicted, classes[:-1])["available"] is False
+
+
+def test_class_weights_boost_only_other() -> None:
+    y = np.array([0] * 10 + [1] * 10 + [4] * 5)
+    base = _class_weights(y, 5)
+    boosted = _class_weights(y, 5, boost=3.0, other_index=4)
+    assert boosted[4] == pytest.approx(3 * base[4])
+    assert torch.allclose(base[:4], boosted[:4])
+
+
+def test_augmentation_is_shape_preserving_and_opt_in() -> None:
+    torch.manual_seed(0)
+    x = torch.rand(4, 16, 99)
+    assert torch.equal(_augment(x, {}), x)
+    noisy = _augment(x, {"noise_std": 0.05, "time_warp": 0.1})
+    assert noisy.shape == x.shape
+    assert not torch.equal(noisy, x)
+
+
 def test_per_class_f1_and_split_summary() -> None:
     y, predicted = np.array([0, 0, 1, 1, 2]), np.array([0, 0, 1, 0, 2])
     per_class = per_class_f1(y, predicted, ["a", "b", "c", "d"])
@@ -100,6 +137,10 @@ def test_toy_pipeline_trains_exports_and_serves_with_worker_classifier(tmp_path:
     assert sum(v["players"] for v in metrics["splits"].values()) == 10
     assert metrics["baselines"]["majority"]["macro_f1"] < metrics["test_macro_f1"]
     assert "logreg" in metrics["baselines"]
+    assert metrics["threshold_target_precision"] == pytest.approx(0.9)
+    assert isinstance(metrics["threshold_reached_target"], bool)
+    assert 0.0 <= metrics["val_precision_at_threshold"] <= 1.0
+    assert metrics["critical_confusion"]["source"] == "other"
     meta = json.loads((export_dir / "meta.json").read_text())
     assert meta["version"] == "test-1" and meta["dataset_hash"].startswith("md5:")
 

@@ -52,6 +52,37 @@ func (s *stubUseCases) List(_ context.Context, owner string, q domain.ListQuery)
 	return s.page, s.err
 }
 
+func (s *stubUseCases) Delete(_ context.Context, owner, _ string) error {
+	s.gotOwner = owner
+	return s.err
+}
+
+func (s *stubUseCases) SetExpertReview(_ context.Context, owner, _ string, allowed bool) (domain.Analysis, error) {
+	s.gotOwner = owner
+	s.analysis.Params.ExpertReviewAllowed = allowed
+	return s.analysis, s.err
+}
+
+type stubPreferences struct {
+	stored   domain.Preferences
+	err      error
+	gotOwner string
+}
+
+func (s *stubPreferences) Get(_ context.Context, owner string) (domain.Preferences, error) {
+	s.gotOwner = owner
+	return s.stored, s.err
+}
+
+func (s *stubPreferences) Update(_ context.Context, owner string, p domain.Preferences) (domain.Preferences, error) {
+	s.gotOwner = owner
+	if s.err != nil {
+		return domain.Preferences{}, s.err
+	}
+	s.stored = p
+	return p, nil
+}
+
 // fakeVerifier acepta solo validToken; cualquier otro valor se comporta como un token inválido.
 type fakeVerifier struct{}
 
@@ -62,23 +93,41 @@ func (fakeVerifier) Verify(_ context.Context, raw string) (domain.Principal, err
 	return domain.Principal{Issuer: "https://idp", Subject: "alice"}, nil
 }
 
-type fakeUsers struct{ err error }
+type fakeUsers struct {
+	err    error
+	roles  []domain.Role
+	status domain.UserStatus
+}
 
-func (u fakeUsers) Resolve(context.Context, domain.Principal) (string, error) { return aliceID, u.err }
+func (u fakeUsers) Resolve(context.Context, domain.Principal) (domain.User, error) {
+	status := u.status
+	if status == "" {
+		status = domain.UserActive
+	}
+	return domain.User{ID: aliceID, Email: "alice@example.test", Roles: u.roles, Status: status}, u.err
+}
 
 func newTestRouter(uc AnalysisUseCases, checks ...HealthCheck) http.Handler {
 	return newRouterWithUsers(uc, fakeUsers{}, checks...)
 }
 
 func newRouterWithUsers(uc AnalysisUseCases, users UserResolver, checks ...HealthCheck) http.Handler {
+	return newRouter(uc, &stubPreferences{}, users, checks...)
+}
+
+func newRouter(uc AnalysisUseCases, prefs PreferenceUseCases, users UserResolver, checks ...HealthCheck) http.Handler {
 	return NewRouter(RouterDeps{
-		Analyses:   uc,
-		Verifier:   fakeVerifier{},
-		Users:      users,
-		AuthConfig: ClientAuthConfig{Enabled: true, Issuer: "https://idp", ClientID: "tennis-web"},
-		Checks:     checks,
-		Web:        fstest.MapFS{"index.html": {Data: []byte("<h1>tenis</h1>")}},
-		Logger:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Analyses:    uc,
+		Preferences: prefs,
+		Profiles:    stubProfiles{},
+		Admin:       stubAdmin{},
+		Knowledge:   stubKnowledge{},
+		Verifier:    fakeVerifier{},
+		Users:       users,
+		AuthConfig:  ClientAuthConfig{Enabled: true, Issuer: "https://idp", ClientID: "tennis-web"},
+		Checks:      checks,
+		Web:         fstest.MapFS{"index.html": {Data: []byte("<h1>tenis</h1>")}},
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 }
 
@@ -185,6 +234,9 @@ func TestProtectedRoutesRejectMissingOrInvalidToken(t *testing.T) {
 		{http.MethodPost, "/v1/analyses"},
 		{http.MethodGet, "/v1/analyses/a1"},
 		{http.MethodPost, "/v1/analyses/a1/submit"},
+		{http.MethodDelete, "/v1/analyses/a1"},
+		{http.MethodGet, "/v1/me/preferences"},
+		{http.MethodPut, "/v1/me/preferences"},
 	}
 	for _, rt := range routes {
 		for _, authz := range []string{"", "Bearer otro-token", "Basic " + validToken, validToken} {
@@ -219,6 +271,41 @@ func TestListReturnsSummariesAndCursor(t *testing.T) {
 	}
 	if _, hasReport := items[0].(map[string]any)["report"]; hasReport {
 		t.Fatal("el listado no debe incluir el reporte completo")
+	}
+}
+
+func TestDeleteReturns204(t *testing.T) {
+	uc := &stubUseCases{}
+	rec := do(newTestRouter(uc), http.MethodDelete, "/v1/analyses/a1", "")
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 || uc.gotOwner != aliceID {
+		t.Fatalf("code=%d body=%s owner=%s", rec.Code, rec.Body, uc.gotOwner)
+	}
+}
+
+func TestDeleteBusyIsConflict(t *testing.T) {
+	rec := do(newTestRouter(&stubUseCases{err: domain.ErrAnalysisBusy}), http.MethodDelete, "/v1/analyses/a1", "")
+	errBody, _ := decode(t, rec)["error"].(map[string]any)
+	if rec.Code != http.StatusConflict || errBody["code"] != "ANALYSIS_BUSY" {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body)
+	}
+}
+
+func TestPreferencesRoundTrip(t *testing.T) {
+	prefs := &stubPreferences{stored: domain.Preferences{Handedness: domain.HandRight}}
+	h := newRouter(&stubUseCases{}, prefs, fakeUsers{})
+	if rec := do(h, http.MethodPut, "/v1/me/preferences", `{"handedness":"left"}`); rec.Code != http.StatusOK {
+		t.Fatalf("PUT code=%d body=%s", rec.Code, rec.Body)
+	}
+	rec := do(h, http.MethodGet, "/v1/me/preferences", "")
+	if rec.Code != http.StatusOK || decode(t, rec)["handedness"] != "left" || prefs.gotOwner != aliceID {
+		t.Fatalf("GET code=%d body=%s owner=%s", rec.Code, rec.Body, prefs.gotOwner)
+	}
+}
+
+func TestPreferencesRejectsMalformedJSON(t *testing.T) {
+	rec := do(newTestRouter(&stubUseCases{}), http.MethodPut, "/v1/me/preferences", `{bad`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("code=%d", rec.Code)
 	}
 }
 

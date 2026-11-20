@@ -9,6 +9,9 @@ const STATUS_TEXT = {
 const CATEGORY_LABEL = { fundamental: "Fundamental", sincronizacion: "Sincronización" };
 
 const STATUS_LABEL = { ...STATUS_TEXT, completed: "Completado", failed: "Falló" };
+// Mientras el worker procesa, la API rechaza el borrado (409): el botón se desactiva.
+const BUSY_STATUSES = new Set(["queued", "processing"]);
+let shownAnalysisId = null;
 
 const $ = (sel) => document.querySelector(sel);
 const form = $("#upload-form");
@@ -22,8 +25,43 @@ async function boot() {
     showStatus(err.message, { error: true });
   }
   renderSession();
-  if (Auth.isLoggedIn()) await loadHistory();
+  if (Auth.isLoggedIn()) await Promise.all([loadPreferences(), loadHistory(), loadMe()]);
 }
+
+// Si la cuenta tiene un rol profesional (experto, validador o admin) se muestra el acceso al portal.
+async function loadMe() {
+  try {
+    const me = await parseResponse(await apiFetch("/v1/me"));
+    $("#portal-link").hidden = me.roles.length === 0;
+  } catch {
+    $("#portal-link").hidden = true;
+  }
+}
+
+// La mano dominante se guarda en la cuenta del usuario: la comparten la web y el móvil.
+const handednessSelect = form.elements.handedness;
+
+async function loadPreferences() {
+  try {
+    const prefs = await parseResponse(await apiFetch("/v1/me/preferences"));
+    handednessSelect.value = prefs.handedness;
+  } catch (err) {
+    showStatus(`No pudimos cargar tu mano dominante: ${err.message}`, { error: true });
+  }
+}
+
+handednessSelect.addEventListener("change", async () => {
+  try {
+    const res = await apiFetch("/v1/me/preferences", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handedness: handednessSelect.value }),
+    });
+    await parseResponse(res);
+  } catch (err) {
+    showStatus(`No pudimos guardar tu mano dominante: ${err.message}`, { error: true });
+  }
+});
 
 function renderSession() {
   const loggedIn = Auth.isLoggedIn();
@@ -83,9 +121,37 @@ async function loadHistory() {
 
 function historyItem(a) {
   const when = new Date(a.created_at).toLocaleString();
-  const button = el("button", { type: "button", className: "link" }, `${when} · ${a.stroke_type || "detectando…"}`);
-  button.addEventListener("click", () => openAnalysis(a.id));
-  return el("li", {}, button, el("span", { className: `status ${a.status}` }, STATUS_LABEL[a.status] || a.status));
+  const label = `${when} · ${a.stroke_type || "detectando…"}`;
+  const open = el("button", { type: "button", className: "link" }, label);
+  open.addEventListener("click", () => openAnalysis(a.id));
+  const busy = BUSY_STATUSES.has(a.status);
+  const remove = el("button", {
+    type: "button",
+    className: "danger",
+    disabled: busy,
+    title: busy ? "Espera a que termine el análisis para eliminarlo" : "Eliminar este análisis",
+  }, "Eliminar");
+  remove.addEventListener("click", () => deleteAnalysis(a.id, label, remove));
+  return el("li", {}, open,
+    el("span", { className: "history-actions" },
+      el("span", { className: `status ${a.status}` }, STATUS_LABEL[a.status] || a.status), remove));
+}
+
+async function deleteAnalysis(id, label, button) {
+  if (!confirm(`¿Eliminar el análisis del ${label}? Se borrarán el video y el informe, y no se puede deshacer.`)) return;
+  button.disabled = true;
+  try {
+    const res = await apiFetch(`/v1/analyses/${id}`, { method: "DELETE" });
+    if (!res.ok && res.status !== 404) await parseResponse(res); // 404: ya no existía, el objetivo se cumple
+    if (shownAnalysisId === id) {
+      $("#result").hidden = true;
+      shownAnalysisId = null;
+    }
+    await loadHistory();
+  } catch (err) {
+    button.disabled = false;
+    alert(err.message);
+  }
 }
 
 async function openAnalysis(id) {
@@ -105,6 +171,7 @@ async function createAnalysis(data) {
     stroke_type: data.get("stroke_type") || undefined, // vacío = que lo detecte el clasificador
     handedness: data.get("handedness"),
     camera_view: data.get("camera_view"),
+    expert_review_allowed: data.get("expert_review_allowed") === "on",
   });
 }
 
@@ -162,13 +229,82 @@ function showStatus(text, { progress, error = false } = {}) {
   else bar.value = progress;
 }
 
+// Los campos de la revisión 1.1 del reporte (strengths, diagnosis, drill_plan, reliability,
+// knowledge_status) son opcionales: un reporte antiguo se sigue mostrando como antes.
 function render(analysis) {
   const report = analysis.report;
+  shownAnalysisId = analysis.id;
   $("#status").hidden = true;
   $("#result").hidden = false;
   $("#warnings").replaceChildren(...report.quality.warnings.map((w) => el("p", { className: "warning" }, w)));
+  renderDiagnosis(report.diagnosis);
+  const strengths = report.strengths || [];
+  $("#strengths-section").hidden = strengths.length === 0;
+  $("#strengths").replaceChildren(...strengths.map(strengthItem));
   $("#findings").replaceChildren(...findingItems(report.findings));
+  renderPlan(report.drill_plan);
+  const rel = report.reliability;
+  $("#reliability").textContent = rel
+    ? `Fiabilidad del informe: ${RELIABILITY_LABEL[rel.level]} (${Math.round(rel.score * 100)}%). ${rel.reasons.join(" ")}`
+    : "";
+  const ks = report.knowledge_status;
+  $("#knowledge-status").textContent = ks ? KNOWLEDGE_LABEL[ks.status](ks) : "";
+  const review = $("#result-expert-review");
+  review.checked = analysis.expert_review_allowed !== false;
+  review.onchange = () => updateExpertReview(analysis.id, review);
   $("#metrics tbody").replaceChildren(...report.metrics.map(metricRow));
+}
+
+const RELIABILITY_LABEL = { high: "alta", medium: "media", low: "baja" };
+const KNOWLEDGE_LABEL = {
+  validated: () => "Todas las reglas usadas están validadas por el equipo de expertos.",
+  partially_validated: (k) =>
+    `${k.validated_rules} de ${k.total_rules} reglas validadas por el equipo de expertos; el resto son provisionales.`,
+  provisional: () => "Las reglas de análisis aún son provisionales: el equipo de expertos las está validando.",
+};
+
+function renderDiagnosis(d) {
+  const box = $("#diagnosis");
+  box.hidden = !d;
+  if (!d) return;
+  const parts = [el("h2", {}, "Resumen"), el("p", {}, d.summary)];
+  if (d.unmeasurable.length) {
+    parts.push(el("p", { className: "muted" }, `No se pudo medir con esta grabación: ${d.unmeasurable.join(", ")}.`));
+  }
+  box.replaceChildren(...parts);
+}
+
+function strengthItem(s) {
+  return el("li", {},
+    el("h3", {}, s.title),
+    el("p", {}, s.why_it_matters),
+    s.how_to_maintain ? el("p", { className: "correction" }, el("strong", {}, "Cómo aprovecharlo: "), s.how_to_maintain) : "");
+}
+
+function renderPlan(plan) {
+  $("#plan-section").hidden = !plan;
+  if (!plan) return;
+  $("#plan").replaceChildren(...plan.items.map((i) =>
+    el("li", {}, el("strong", {}, `Semana ${i.week}: ${i.focus}`),
+      i.drills.length ? el("ul", {}, ...i.drills.map((d) => el("li", {}, d))) : "")));
+  $("#plan-next").textContent = `Vuelve a grabarte en ${plan.reanalyze_after_weeks} semana(s) para medir tu progreso.`;
+}
+
+async function updateExpertReview(id, checkbox) {
+  checkbox.disabled = true;
+  try {
+    const res = await apiFetch(`/v1/analyses/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expert_review_allowed: checkbox.checked }),
+    });
+    await parseResponse(res);
+  } catch (err) {
+    checkbox.checked = !checkbox.checked;
+    alert(err.message);
+  } finally {
+    checkbox.disabled = false;
+  }
 }
 
 function findingItems(findings) {
@@ -178,6 +314,8 @@ function findingItems(findings) {
   return findings.map((f) =>
     el("li", {},
       el("span", { className: `tag ${f.category}` }, CATEGORY_LABEL[f.category] || f.category),
+      f.validated === undefined ? "" : el("span", { className: `tag ${f.validated ? "validated" : "provisional"}` },
+        f.validated ? "Regla validada" : "Regla provisional"),
       el("h3", {}, f.title),
       el("p", {}, f.explanation),
       el("p", { className: "correction" }, el("strong", {}, "Corrección: "), f.correction),

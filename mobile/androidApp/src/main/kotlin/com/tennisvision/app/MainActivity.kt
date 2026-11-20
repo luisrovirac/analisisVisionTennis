@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -28,7 +30,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.initializer
@@ -36,9 +40,10 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.tennisvision.shared.AnalysisProgress
 import com.tennisvision.shared.model.Analysis
 import com.tennisvision.shared.model.AnalysisSummary
-import com.tennisvision.shared.model.CreateAnalysisRequest
+import com.tennisvision.shared.model.Handedness
 
 private val STROKES = listOf(null to "Detectar", "forehand" to "Forehand")
+private val HANDS = listOf(Handedness.RIGHT to "Diestro", Handedness.LEFT to "Zurdo")
 
 class MainActivity : ComponentActivity() {
     private val viewModel: AnalysisViewModel by viewModels {
@@ -70,7 +75,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        if (viewModel.loggedIn.value) viewModel.refreshHistory()
+        if (viewModel.loggedIn.value) viewModel.loadSession()
     }
 
     override fun onDestroy() {
@@ -83,13 +88,15 @@ class MainActivity : ComponentActivity() {
 private fun AnalyzeScreen(state: UiState, viewModel: AnalysisViewModel) {
     val resolver = LocalContext.current.contentResolver
     var stroke by remember { mutableStateOf<String?>("forehand") }
+    var pendingDelete by remember { mutableStateOf<AnalysisSummary?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { viewModel.analyze(resolver.videoSource(it), CreateAnalysisRequest(strokeType = stroke)) }
+        uri?.let { viewModel.analyze(resolver.videoSource(it), stroke) }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        STROKES.forEach { (value, label) ->
-            FilterChip(selected = stroke == value, onClick = { stroke = value }, label = { Text(label) })
-        }
+    ChipRow(STROKES, selected = stroke, onSelect = { stroke = it })
+    ChipRow(HANDS, selected = state.handedness, onSelect = viewModel::setHandedness)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(checked = state.expertReviewAllowed, onCheckedChange = viewModel::setExpertReviewAllowed)
+        Text("Permitir que expertos vean este video (solo para mejorar las reglas; tu análisis es automático)")
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(enabled = !state.busy, onClick = { picker.launch("video/*") }) { Text("Elegir video y analizar") }
@@ -99,10 +106,46 @@ private fun AnalyzeScreen(state: UiState, viewModel: AnalysisViewModel) {
     Text("Mis análisis", style = MaterialTheme.typography.titleMedium)
     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(state.history, key = AnalysisSummary::id) { item ->
-            Text("${item.createdAt.take(16).replace('T', ' ')} · ${item.strokeType ?: "detectando…"} · ${item.status.name.lowercase()}",
-                Modifier.fillMaxWidth().clickable { viewModel.open(item.id) }.padding(vertical = 6.dp))
+            HistoryRow(item, onOpen = { viewModel.open(item.id) }, onDelete = { pendingDelete = item })
         }
     }
+    pendingDelete?.let { item ->
+        ConfirmDeleteDialog(item, onConfirm = { viewModel.delete(item.id); pendingDelete = null }, onDismiss = { pendingDelete = null })
+    }
+}
+
+@Composable
+private fun <T> ChipRow(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (value, label) ->
+            FilterChip(selected = selected == value, onClick = { onSelect(value) }, label = { Text(label) })
+        }
+    }
+}
+
+private fun AnalysisSummary.label() = "${createdAt.take(16).replace('T', ' ')} · ${strokeType ?: "detectando…"}"
+
+@Composable
+private fun HistoryRow(item: AnalysisSummary, onOpen: () -> Unit, onDelete: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("${item.label()} · ${item.status.name.lowercase()}",
+            Modifier.weight(1f).clickable(onClick = onOpen).padding(vertical = 6.dp))
+        // Mientras se procesa, la API rechaza el borrado: el botón se desactiva.
+        TextButton(onClick = onDelete, enabled = !item.status.isBusy) {
+            Text("Eliminar", color = if (item.status.isBusy) Color.Unspecified else MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+@Composable
+private fun ConfirmDeleteDialog(item: AnalysisSummary, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("¿Eliminar análisis?") },
+        text = { Text("Se borrarán el video y el informe del ${item.label()}. No se puede deshacer.") },
+        confirmButton = { TextButton(onClick = onConfirm) { Text("Eliminar", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
 }
 
 @Composable
@@ -126,14 +169,35 @@ private fun Progress(progress: AnalysisProgress) {
 private fun Report(analysis: Analysis) {
     val report = analysis.report ?: return
     report.quality.warnings.forEach { Text("⚠ $it") }
+    report.diagnosis?.let { Text(it.summary, style = MaterialTheme.typography.bodyLarge) }
+    if (report.strengths.isNotEmpty()) Text("Lo que haces bien", style = MaterialTheme.typography.titleMedium)
+    report.strengths.forEach { strength ->
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(strength.title, style = MaterialTheme.typography.titleSmall)
+                Text(strength.whyItMatters)
+                if (strength.howToMaintain.isNotBlank()) Text("Cómo aprovecharlo: ${strength.howToMaintain}")
+            }
+        }
+    }
     if (report.findings.isEmpty()) Text("No detectamos errores con las reglas actuales. ¡Buen golpe!")
     report.findings.forEach { finding ->
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("${finding.rank}. ${finding.title}", style = MaterialTheme.typography.titleSmall)
+                finding.validated?.let { Text(if (it) "Regla validada" else "Regla provisional", style = MaterialTheme.typography.labelSmall) }
                 Text(finding.explanation)
                 Text("Corrección: ${finding.correction}")
             }
         }
     }
+    report.drillPlan?.let { plan ->
+        Text("Tu plan de ejercicios", style = MaterialTheme.typography.titleMedium)
+        plan.items.forEach { item -> Text("Semana ${item.week}: ${item.focus}\n" + item.drills.joinToString("\n") { "• $it" }) }
+        Text("Vuelve a grabarte en ${plan.reanalyzeAfterWeeks} semana(s).")
+    }
+    report.reliability?.let { Text("Fiabilidad del informe: ${RELIABILITY[it.level] ?: it.level}", style = MaterialTheme.typography.labelMedium) }
+    Text("Recomendaciones de entrenamiento, no diagnóstico médico.", style = MaterialTheme.typography.labelSmall)
 }
+
+private val RELIABILITY = mapOf("high" to "alta", "medium" to "media", "low" to "baja")

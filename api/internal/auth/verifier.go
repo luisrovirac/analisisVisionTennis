@@ -50,7 +50,8 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (domain.Prin
 		return domain.Principal{}, fmt.Errorf("%w: %w", domain.ErrUnauthenticated, err)
 	}
 	var claims struct {
-		Email string `json:"email"`
+		Email         string `json:"email"`
+		EmailVerified bool   `json:"email_verified"`
 	}
 	if err := token.Claims(&claims); err != nil {
 		return domain.Principal{}, fmt.Errorf("%w: claims ilegibles: %w", domain.ErrUnauthenticated, err)
@@ -58,7 +59,8 @@ func (v *OIDCVerifier) Verify(ctx context.Context, rawToken string) (domain.Prin
 	if token.Subject == "" {
 		return domain.Principal{}, fmt.Errorf("%w: el token no tiene `sub`", domain.ErrUnauthenticated)
 	}
-	return domain.Principal{Issuer: token.Issuer, Subject: token.Subject, Email: claims.Email}, nil
+	return domain.Principal{Issuer: token.Issuer, Subject: token.Subject, Email: claims.Email,
+		EmailVerified: claims.EmailVerified}, nil
 }
 
 // StaticVerifier acepta cualquier petición como un usuario fijo. Solo para desarrollo local

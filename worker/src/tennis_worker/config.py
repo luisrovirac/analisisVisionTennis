@@ -38,7 +38,10 @@ class Settings(BaseSettings):
     s3_use_ssl: bool = False
 
     pose_model_path: Path
-    knowledge_base_dir: Path
+    knowledge_base_dir: Path  # semilla YAML (y fuente directa si knowledge_source = yaml)
+    # postgres: versión publicada desde el portal de expertos (por defecto); yaml: solo los archivos.
+    knowledge_source: Literal["postgres", "yaml"] = "postgres"
+    knowledge_refresh_seconds: float = Field(default=15.0, gt=0)
 
     max_video_seconds: float = Field(default=30.0, gt=0)
     max_attempts: int = Field(default=3, ge=1)

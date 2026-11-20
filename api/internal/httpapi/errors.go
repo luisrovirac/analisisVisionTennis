@@ -29,6 +29,14 @@ var errorMappings = []errorMapping{
 		"El video es demasiado grande. Recórtalo a un solo golpe (máx. 30 s)."},
 	{domain.ErrUnsupportedMedia, http.StatusUnsupportedMediaType, "UNSUPPORTED_MEDIA",
 		"El archivo no es un video. Usa MP4 o MOV."},
+	{domain.ErrAnalysisBusy, http.StatusConflict, "ANALYSIS_BUSY",
+		"El análisis se está procesando. Espera a que termine para eliminarlo."},
+	{domain.ErrResourceNotFound, http.StatusNotFound, "NOT_FOUND", "El recurso no existe."},
+	{domain.ErrAccountSuspended, http.StatusForbidden, "ACCOUNT_SUSPENDED",
+		"Tu cuenta está suspendida. Contacta con el administrador."},
+	// El motivo concreto (p. ej. "nadie valida sus propias propuestas") es útil y no sensible.
+	{domain.ErrForbidden, http.StatusForbidden, "FORBIDDEN", ""},
+	{domain.ErrConflict, http.StatusConflict, "CONFLICT", ""},
 }
 
 func writeError(c *gin.Context, logger *slog.Logger, err error) {

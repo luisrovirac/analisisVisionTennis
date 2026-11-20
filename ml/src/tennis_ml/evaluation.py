@@ -36,6 +36,41 @@ def low_support_classes(per_class: dict[str, dict[str, Any]], minimum: int = MIN
     return [c for c, v in per_class.items() if v["support"] < minimum]
 
 
+def critical_confusion(y: NDArray[np.int64], predicted: NDArray[np.int64], classes: list[str],
+                       source: str = "other", target: str = "serve") -> dict[str, Any]:
+    """Errores `source → target`: el par que puede dar correcciones de saque a un smash.
+
+    Se reporta como conteo y tasa sobre el soporte real de `source`, para que sea interpretable
+    aunque esa clase tenga pocos clips en test.
+    """
+    if source not in classes or target not in classes:
+        return {"source": source, "target": target, "available": False,
+                "count": 0, "support": 0, "rate": 0.0}
+    source_id, target_id = classes.index(source), classes.index(target)
+    mask = y == source_id
+    support = int(mask.sum())
+    count = int(((predicted == target_id) & mask).sum())
+    return {"source": source, "target": target, "available": True, "count": count,
+            "support": support, "rate": round(count / support, 4) if support else 0.0}
+
+
+def confidence_bins(probs: NDArray[np.float32], y: NDArray[np.int64],
+                    bins: tuple[float, ...] = (0.3, 0.5, 0.7, 0.9, 0.95, 0.99)) -> list[dict[str, Any]]:
+    """Precisión y cobertura por franja de confianza: diagnóstico de sobreconfianza."""
+    confidence, correct = probs.max(axis=1), probs.argmax(axis=1) == y
+    result = []
+    lower = 0.0
+    for upper in bins:
+        mask = (confidence >= lower) & (confidence < upper)
+        result.append({"from": lower, "to": upper, "n": int(mask.sum()),
+                       "precision": round(float(correct[mask].mean()), 4) if mask.any() else None})
+        lower = upper
+    mask = confidence >= bins[-1]
+    result.append({"from": bins[-1], "to": 1.0, "n": int(mask.sum()),
+                   "precision": round(float(correct[mask].mean()), 4) if mask.any() else None})
+    return result
+
+
 def split_summary(samples: list[Sample], classes: list[str]) -> dict[str, dict[str, Any]]:
     """Jugadores, clips y distribución de clases por split (de labels.csv: la partición es por jugador)."""
     summary = {}

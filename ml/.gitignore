@@ -1,6 +1,9 @@
-# Salidas del pipeline: las versiona DVC (dvc.lock + remote), no git.
+﻿# Salidas del pipeline: las versiona DVC (dvc.lock + remote), no git.
 /data/
 /artifacts/
 /export/
 /mlruns/
 /mlartifacts/
+# Salidas de Ultralytics
+/runs/
+/yolo*.pt

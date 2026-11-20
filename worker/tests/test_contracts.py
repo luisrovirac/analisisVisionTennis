@@ -34,3 +34,17 @@ def test_legacy_1_0_messages_still_require_stroke_type() -> None:
     assert JobMessage.model_validate(legacy).stroke_type == "forehand"
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({k: v for k, v in legacy.items() if k != "stroke_type"}, schema())
+
+
+@pytest.mark.parametrize("fixture", ["report.v1_0.example.json", "report.v1_1.example.json"])
+def test_report_fixtures_match_schema_and_model(fixture: str) -> None:
+    """1.0 y 1.1 conviven: los campos de 1.1 son opcionales y un reporte 1.0 sigue siendo válido."""
+    from tennis_worker.contracts import Report
+
+    jsonschema = pytest.importorskip("jsonschema")
+    raw = (FIXTURES / fixture).read_text(encoding="utf-8")
+    report_schema = json.loads((CONTRACTS_DIR / "report.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(json.loads(raw), report_schema)
+    report = Report.model_validate_json(raw)
+    assert report.schema_version == "1.0"
+    assert (report.diagnosis is None) == fixture.startswith("report.v1_0")

@@ -1,0 +1,194 @@
+{
+  "schema_version": "1.0",
+  "stroke_type": "forehand",
+  "segment": {
+    "fps": 60.0,
+    "start_frame": 11,
+    "backswing_frame": 11,
+    "impact_frame": 71,
+    "end_frame": 131
+  },
+  "metrics": [
+    {
+      "id": "shoulder_rotation_range",
+      "label": "Rotación de hombros (preparación → impacto)",
+      "value": 24.0666,
+      "unit": "deg",
+      "confidence": 0.9
+    },
+    {
+      "id": "hip_shoulder_separation_max",
+      "label": "Separación cadera-hombros máxima",
+      "value": 11.5529,
+      "unit": "deg",
+      "confidence": 0.9
+    },
+    {
+      "id": "elbow_angle_at_impact",
+      "label": "Ángulo del codo en el impacto",
+      "value": 90.0,
+      "unit": "deg",
+      "confidence": 0.9
+    },
+    {
+      "id": "knee_angle_min",
+      "label": "Flexión de rodillas (ángulo mínimo; 180 = pierna recta)",
+      "value": 175.0,
+      "unit": "deg",
+      "confidence": 0.9
+    },
+    {
+      "id": "contact_point_ahead",
+      "label": "Punto de impacto adelantado",
+      "value": 0.1457,
+      "unit": "m",
+      "confidence": 0.9
+    },
+    {
+      "id": "follow_through_height",
+      "label": "Altura de la terminación sobre el hombro",
+      "value": -0.206,
+      "unit": "m",
+      "confidence": 0.9
+    },
+    {
+      "id": "kinetic_chain_sequence",
+      "label": "Secuencia de la cadena cinética (cadera → hombros → brazo)",
+      "value": 0.0,
+      "unit": "bool",
+      "confidence": 0.9
+    }
+  ],
+  "findings": [
+    {
+      "rule_id": "FH-PREP-001",
+      "rank": 1,
+      "category": "fundamental",
+      "title": "Preparación sin giro de hombros",
+      "explanation": "Los hombros apenas rotan entre la preparación y el impacto. Sin ese giro el golpe pierde potencia y dependes casi solo del brazo.\n",
+      "correction": "Al ver venir la bola, gira los hombros hasta que el hombro no dominante apunte a la bola, llevando la raqueta atrás con el giro del tronco, no solo con el brazo.\n",
+      "drills": [
+        "Sombra frente a un espejo: gira hasta ver tu espalda de perfil y pausa 1 s antes de golpear.",
+        "Golpes desde el pie con la mano no dominante señalando la bola hasta el último momento."
+      ],
+      "evidence": {
+        "shoulder_rotation_range": 24.0666
+      }
+    },
+    {
+      "rule_id": "FH-CONT-001",
+      "rank": 2,
+      "category": "fundamental",
+      "title": "Punto de impacto atrasado",
+      "explanation": "Golpeas la bola demasiado cerca del cuerpo o por detrás de él. Pierdes control de la dirección y fuerzas el brazo.\n",
+      "correction": "Busca el impacto por delante de la cadera delantera, con el brazo cómodo y extendido. Prepara antes para tener tiempo de ir a buscar la bola delante.\n",
+      "drills": [
+        "Coloca un cono a un paso por delante de tu pie adelantado e intenta golpear a su altura.",
+        "Peloteo con bolas lentas pausando en el punto de impacto para comprobar la posición."
+      ],
+      "evidence": {
+        "contact_point_ahead": 0.1457
+      }
+    },
+    {
+      "rule_id": "FH-POST-001",
+      "rank": 3,
+      "category": "fundamental",
+      "title": "Piernas rígidas (sin flexión de rodillas)",
+      "explanation": "Las rodillas casi no se flexionan durante la preparación, así que las piernas no aportan impulso ni estabilidad al golpe.\n",
+      "correction": "Flexiona las rodillas al preparar (como para sentarte en un taburete alto) y empuja desde el suelo hacia arriba y hacia delante al golpear.\n",
+      "drills": [
+        "Series de 10 golpes con la consigna: 'bajo al preparar, subo al golpear'.",
+        "Sentadillas con pausa en posición de preparación (3 x 10)."
+      ],
+      "evidence": {
+        "knee_angle_min": 175.0
+      }
+    },
+    {
+      "rule_id": "FH-FIN-001",
+      "rank": 4,
+      "category": "fundamental",
+      "title": "Terminación corta",
+      "explanation": "El brazo no termina por encima del hombro: el swing se frena antes de tiempo y la bola sale sin efecto y con menos profundidad.\n",
+      "correction": "Deja que la raqueta siga su recorrido hasta terminar por encima del hombro contrario, con el codo apuntando hacia la red.\n",
+      "drills": [
+        "Sombra exagerando la terminación: termina 'atrapando' la raqueta con la mano no dominante."
+      ],
+      "evidence": {
+        "follow_through_height": -0.206
+      }
+    },
+    {
+      "rule_id": "FH-ARM-001",
+      "rank": 5,
+      "category": "fundamental",
+      "title": "Codo demasiado flexionado en el impacto",
+      "explanation": "El brazo llega muy encogido al impacto, lo que reduce el radio del swing y suele indicar que estás demasiado cerca de la bola.\n",
+      "correction": "Separa un poco más la bola del cuerpo y deja que el brazo se extienda de forma natural en el impacto, sin bloquearlo del todo.\n",
+      "drills": [
+        "Golpes con una pelota bajo la axila del brazo libre para mantener la estructura y la distancia."
+      ],
+      "evidence": {
+        "elbow_angle_at_impact": 90.0
+      }
+    },
+    {
+      "rule_id": "FH-SYNC-003",
+      "rank": 6,
+      "category": "sincronizacion",
+      "title": "Golpeo con el brazo",
+      "explanation": "La cadera apenas participa y el codo llega flexionado al impacto: el golpe se genera principalmente con el brazo, lo que limita la potencia y sobrecarga hombro y codo.\n",
+      "correction": "Inicia el movimiento desde las caderas y deja que el brazo sea el último eslabón, llegando relajado y extendido al impacto.\n",
+      "drills": [
+        "Golpes con el brazo 'muerto': la rotación de cadera y tronco es la que lleva la raqueta."
+      ],
+      "evidence": {
+        "elbow_angle_at_impact": 90.0,
+        "hip_shoulder_separation_max": 11.5529
+      }
+    },
+    {
+      "rule_id": "FH-SYNC-002",
+      "rank": 7,
+      "category": "sincronizacion",
+      "title": "Cadena cinética desordenada",
+      "explanation": "Los segmentos del cuerpo no alcanzan su máxima velocidad en el orden eficiente (cadera → hombros → brazo). La energía no se transmite de forma escalonada.\n",
+      "correction": "Piensa en el golpe como un látigo: primero piernas y cadera, después el tronco y, por último, el brazo y la raqueta. Trabaja a velocidad lenta hasta automatizar el orden.\n",
+      "drills": [
+        "Golpes a cámara lenta contando en voz alta '1-cadera, 2-hombros, 3-brazo'.",
+        "Lanzamientos de balón medicinal con rotación, enfatizando el inicio desde la cadera."
+      ],
+      "evidence": {
+        "kinetic_chain_sequence": 0.0
+      }
+    },
+    {
+      "rule_id": "FH-SYNC-001",
+      "rank": 8,
+      "category": "sincronizacion",
+      "title": "Cadera y hombros giran en bloque",
+      "explanation": "Cadera y hombros giran a la vez, sin separación entre ellos. Se pierde la \"torsión\" que almacena energía elástica en el tronco.\n",
+      "correction": "Inicia el swing hacia delante con la cadera mientras los hombros todavía están girados; los hombros deben seguir a la cadera una fracción de segundo después.\n",
+      "drills": [
+        "Sombra en dos tiempos: 1) gira la cadera, 2) suelta hombros y brazo.",
+        "Lanzamientos laterales con balón medicinal desde posición de preparación."
+      ],
+      "evidence": {
+        "hip_shoulder_separation_max": 11.5529
+      }
+    }
+  ],
+  "quality": {
+    "pose_detection_rate": 1.0,
+    "warnings": []
+  },
+  "knowledge_base_version": "forehand@0.1.0",
+  "classification": {
+    "stroke": "forehand",
+    "confidence": 1.0,
+    "classifier_id": "user",
+    "model_version": null,
+    "dataset_hash": null
+  }
+}

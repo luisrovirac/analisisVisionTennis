@@ -12,14 +12,21 @@ type createAnalysisRequest struct {
 	StrokeType string `json:"stroke_type"`
 	Handedness string `json:"handedness"`
 	CameraView string `json:"camera_view"`
+	// Ausente = true: el checkbox "Permitir que expertos vean este video" viene marcado.
+	ExpertReviewAllowed *bool `json:"expert_review_allowed"`
 }
 
 func (r createAnalysisRequest) toParams() domain.AnalysisParams {
 	return domain.AnalysisParams{
-		StrokeType: domain.StrokeType(r.StrokeType),
-		Handedness: domain.Handedness(r.Handedness),
-		CameraView: domain.CameraView(r.CameraView),
+		StrokeType:          domain.StrokeType(r.StrokeType),
+		Handedness:          domain.Handedness(r.Handedness),
+		CameraView:          domain.CameraView(r.CameraView),
+		ExpertReviewAllowed: r.ExpertReviewAllowed == nil || *r.ExpertReviewAllowed,
 	}
+}
+
+type updateAnalysisRequest struct {
+	ExpertReviewAllowed *bool `json:"expert_review_allowed"`
 }
 
 type errorBody struct {
@@ -28,15 +35,17 @@ type errorBody struct {
 }
 
 type analysisResponse struct {
-	ID         string          `json:"id"`
-	Status     domain.Status   `json:"status"`
-	StrokeType *string         `json:"stroke_type"` // null = pendiente de detectar
-	Handedness string          `json:"handedness"`
-	CameraView string          `json:"camera_view"`
-	Error      *errorBody      `json:"error"`
-	Report     json.RawMessage `json:"report"`
-	CreatedAt  time.Time       `json:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at"`
+	ID         string        `json:"id"`
+	Status     domain.Status `json:"status"`
+	StrokeType *string       `json:"stroke_type"` // null = pendiente de detectar
+	Handedness string        `json:"handedness"`
+	CameraView string        `json:"camera_view"`
+	// ExpertReviewAllowed: el dueño permite que expertos vean el video (control de calidad de reglas).
+	ExpertReviewAllowed bool            `json:"expert_review_allowed"`
+	Error               *errorBody      `json:"error"`
+	Report              json.RawMessage `json:"report"`
+	CreatedAt           time.Time       `json:"created_at"`
+	UpdatedAt           time.Time       `json:"updated_at"`
 }
 
 type uploadTicketResponse struct {
@@ -47,15 +56,16 @@ type uploadTicketResponse struct {
 
 func toAnalysisResponse(a domain.Analysis) analysisResponse {
 	return analysisResponse{
-		ID:         a.ID,
-		Status:     a.Status,
-		StrokeType: strokeOrNull(a.Params.StrokeType),
-		Handedness: string(a.Params.Handedness),
-		CameraView: string(a.Params.CameraView),
-		Error:      toErrorBody(a),
-		Report:     rawOrNull(a.Report),
-		CreatedAt:  a.CreatedAt,
-		UpdatedAt:  a.UpdatedAt,
+		ID:                  a.ID,
+		Status:              a.Status,
+		StrokeType:          strokeOrNull(a.Params.StrokeType),
+		Handedness:          string(a.Params.Handedness),
+		CameraView:          string(a.Params.CameraView),
+		ExpertReviewAllowed: a.Params.ExpertReviewAllowed,
+		Error:               toErrorBody(a),
+		Report:              rawOrNull(a.Report),
+		CreatedAt:           a.CreatedAt,
+		UpdatedAt:           a.UpdatedAt,
 	}
 }
 

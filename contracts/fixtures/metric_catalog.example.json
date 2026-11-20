@@ -1,0 +1,44 @@
+[
+  {
+    "stroke": "forehand",
+    "id": "shoulder_rotation_range",
+    "label": "Rotación de hombros (preparación → impacto)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "forehand",
+    "id": "hip_shoulder_separation_max",
+    "label": "Separación cadera-hombros máxima",
+    "unit": "deg"
+  },
+  {
+    "stroke": "forehand",
+    "id": "elbow_angle_at_impact",
+    "label": "Ángulo del codo en el impacto",
+    "unit": "deg"
+  },
+  {
+    "stroke": "forehand",
+    "id": "knee_angle_min",
+    "label": "Flexión de rodillas (ángulo mínimo; 180 = pierna recta)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "forehand",
+    "id": "contact_point_ahead",
+    "label": "Punto de impacto adelantado",
+    "unit": "m"
+  },
+  {
+    "stroke": "forehand",
+    "id": "follow_through_height",
+    "label": "Altura de la terminación sobre el hombro",
+    "unit": "m"
+  },
+  {
+    "stroke": "forehand",
+    "id": "kinetic_chain_sequence",
+    "label": "Secuencia de la cadena cinética (cadera → hombros → brazo)",
+    "unit": "bool"
+  }
+]

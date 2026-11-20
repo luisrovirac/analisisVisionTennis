@@ -1,9 +1,10 @@
-# Base de conocimiento del FOREHAND.
-# ⚠ Umbrales PROVISIONALES: deben ser revisados y validados por un entrenador antes de producción.
-#   Cuando se valide, rellena `validated_by` y sube `version`.
-# Guía de edición: Docs/BASE_CONOCIMIENTO.md
+# Base de conocimiento del FOREHAND (semilla).
+# ⚠ Umbrales PROVISIONALES. Desde el portal de expertos este archivo es solo la SEMILLA: el worker lo
+#   importa a Postgres la primera vez (versión publicada inicial). A partir de ahí los cambios se hacen
+#   en el portal (el experto propone, el validador aprueba) y no editando este archivo.
+# Guía: Docs/BASE_CONOCIMIENTO.md · Esquema: contracts/knowledge_base.schema.json
 stroke: forehand
-version: 0.1.0
+version: 0.2.0
 validated_by: null
 
 rules:
@@ -49,6 +50,7 @@ rules:
     category: fundamental
     impact: 5
     difficulty: 2
+    caused_by: [FH-PREP-001]  # sin giro, la preparación llega tarde y el impacto se atrasa
     when:
       all:
         - {metric: contact_point_ahead, op: lt, value: 0.15}
@@ -67,6 +69,7 @@ rules:
     category: fundamental
     impact: 3
     difficulty: 1
+    caused_by: [FH-CONT-001]  # un impacto atrasado frena el swing antes de tiempo
     when:
       all:
         - {metric: follow_through_height, op: lt, value: 0.0}
@@ -138,6 +141,7 @@ rules:
     category: sincronizacion
     impact: 5
     difficulty: 4
+    caused_by: [FH-SYNC-001]  # sin separación cadera-hombros el brazo compensa
     when:
       all:
         - {metric: hip_shoulder_separation_max, op: lt, value: 20}
@@ -150,3 +154,114 @@ rules:
       relajado y extendido al impacto.
     drills:
       - "Golpes con el brazo 'muerto': la rotación de cadera y tronco es la que lleva la raqueta."
+
+  # ---------- Puntos fuertes (polarity: strength) ----------
+  # Un punto fuerte NO es la ausencia de un error: tiene su propio umbral, más exigente.
+  # suppressed_by: no se elogia si aparece un error que lo contradice (las reglas de salud mandan).
+  - id: FH-STR-001
+    title: Buena rotación de hombros en la preparación
+    category: fundamental
+    polarity: strength
+    impact: 5
+    difficulty: 1
+    when:
+      all:
+        - {metric: shoulder_rotation_range, op: gte, value: 70}
+    explanation: Giras los hombros ampliamente entre la preparación y el impacto.
+    why_it_matters: >
+      Ese giro del tronco genera potencia sin depender solo del brazo y protege hombro y codo.
+    how_to_maintain: >
+      Mantén el giro como base: es tu mejor herramienta para llegar antes al punto de impacto.
+
+  - id: FH-STR-002
+    title: Separación cadera-hombros que genera potencia elástica
+    category: sincronizacion
+    polarity: strength
+    impact: 4
+    difficulty: 3
+    when:
+      all:
+        - {metric: hip_shoulder_separation_max, op: gte, value: 25}
+    explanation: La cadera se adelanta a los hombros antes del impacto.
+    why_it_matters: >
+      Esa torsión almacena energía elástica en el tronco y la libera en el golpe.
+    how_to_maintain: >
+      Sigue iniciando el swing con la cadera mientras los hombros todavía están girados.
+
+  - id: FH-STR-003
+    title: Cadena cinética bien secuenciada
+    category: sincronizacion
+    polarity: strength
+    impact: 5
+    difficulty: 5
+    suppressed_by: [FH-SYNC-003]
+    when:
+      all:
+        - {metric: kinetic_chain_sequence, op: eq, value: 1}
+    explanation: Cadera, hombros y brazo alcanzan su máxima velocidad en el orden eficiente.
+    why_it_matters: >
+      La energía se transmite escalonadamente desde el suelo hasta la raqueta: más potencia con
+      menos esfuerzo del brazo.
+    how_to_maintain: >
+      Usa este patrón como referencia también en el revés y el saque.
+
+  - id: FH-STR-004
+    title: Punto de contacto adelantado
+    category: fundamental
+    polarity: strength
+    impact: 5
+    difficulty: 2
+    when:
+      all:
+        - {metric: contact_point_ahead, op: gte, value: 0.2}
+    explanation: Golpeas la bola claramente por delante de la cadera.
+    why_it_matters: >
+      Te da control de la dirección, un impacto más limpio y menos carga en el brazo.
+    how_to_maintain: >
+      Prepara pronto para conservar ese punto de impacto también con bolas rápidas.
+
+  - id: FH-STR-005
+    title: Terminación completa y alta
+    category: fundamental
+    polarity: strength
+    impact: 3
+    difficulty: 1
+    when:
+      all:
+        - {metric: follow_through_height, op: gte, value: 0.1}
+    explanation: El brazo termina claramente por encima del hombro.
+    why_it_matters: >
+      Una terminación completa da profundidad y efecto, y frena el brazo de forma progresiva.
+    how_to_maintain: >
+      Deja que la raqueta siga su recorrido natural; no frenes el swing al impactar.
+
+  - id: FH-STR-006
+    title: Flexión de piernas activa
+    category: fundamental
+    polarity: strength
+    impact: 4
+    difficulty: 1
+    when:
+      all:
+        - {metric: knee_angle_min, op: between, value: [110, 145]}
+    explanation: Flexionas las rodillas en la preparación y cargas el peso.
+    why_it_matters: >
+      Las piernas aportan estabilidad e impulso desde el suelo hacia el golpe.
+    how_to_maintain: >
+      Repite la misma profundidad en cada golpe, también cuando vas con prisa.
+
+  - id: FH-STR-007
+    title: Brazo de golpeo en rango eficiente al impacto
+    category: fundamental
+    polarity: strength
+    impact: 3
+    difficulty: 2
+    suppressed_by: [FH-SYNC-003, FH-ARM-001]
+    when:
+      all:
+        - {metric: elbow_angle_at_impact, op: between, value: [120, 170]}
+    explanation: El brazo llega al impacto cómodo y extendido, sin bloquearse.
+    why_it_matters: >
+      Mayor radio de swing y mejor control de la bola sin forzar el codo.
+    how_to_maintain: >
+      Mantén la distancia a la bola; deja que el brazo acompañe el giro del cuerpo.

@@ -9,7 +9,7 @@ Con las fases 0–4 construidas, lo que queda no es añadir arquitectura, sino *
 | 0. Sanear entorno | ✅ Cerrado |
 | 1. Primer commit + CI verde | ✅ Cerrado |
 | 2. THETIS + `dvc repro` (dataset + entrenamiento) | ✅ Cerrado: `dvc.lock` generado, `dvc push` (1,980 ficheros), `stroke-pose-seq` v2 en MLflow |
-| 3. Evaluar y decidir publicación | 🔴 No publicar: macro-F1 0.759 (objetivo 0.90), F1 `other` 0.609; supera a logreg (0.625) |
+| 3. Evaluar y decidir publicación | 🔴 No publicar: mejor pose_seq macro-F1 0.779, F1 `other` 0.75; YOLO 0.639 (§3.6); ninguno pasa las compuertas |
 | 4. Publicar y activar la clasificación automática | ⏳ |
 | 5. Android en emulador/dispositivo | ⏳ |
 | 6. iOS | ⏸️ Fuera de alcance en dev/staging |
@@ -132,6 +132,99 @@ Con THETIS, `test_low_support_classes` incluirá `other` (15 clips): es esperado
 3. Documenta la brecha y la estrategia antes de publicar.
 
 **Criterio de salida:** el run de test reporta macro-F1, accuracy, F1 por clase, matriz de confusión, tamaños de split y baseline. **Publicar si** macro-F1 ≥ 0.90, el F1 de `other` es aceptable (≥ 0.75, reportado como ruidoso por n=15) y el modelo supera claramente el baseline. Si no, documentar la brecha y la decisión.
+
+#### 3.4. Compuerta de seguridad añadida (2026-11-17)
+
+El run actual tiene un problema que el macro-F1 no mostraba: `calibrate_threshold` no encontró ningún
+umbral con precisión 0.95 en validación y **cayó al fallback 0.99** (`export.py`). En test, con ese
+umbral, `coverage_at_threshold=0.70` pero `accuracy_at_threshold=0.8492`: el worker aceptaría
+aproximadamente 1 de cada 6 predicciones equivocadas. Por tanto, **`STROKE_MIN_CONFIDENCE=0.99` no
+es una garantía de precisión** con este modelo; está sobreconfiado.
+
+Cambios aplicados en el pipeline para que esto sea visible y decidible:
+
+- `ml/metrics/pose_seq.json` incluye `threshold_target_precision`, `threshold_reached_target`,
+  `threshold_used_fallback`, `val_precision_at_threshold` y `critical_confusion` (conteo/tasa de
+  `other → serve`). `export.py` emite un warning cuando se usa el fallback.
+- `python -m tennis_ml diagnose --out metrics/diagnostic.json` imprime F1 por clase, precisión por
+  franja de confianza y la confusión crítica de val y test **sin re-entrenar**.
+- `ml/params.yaml → pose_seq` añade `other_weight_boost`, `noise_std`, `time_warp` y
+  `other_serve_penalty` (neutros por defecto) para barrer mejoras sin reescribir código. Los class
+  weights inversos y la normalización por torso **ya existían**; no hay que reimplementarlos.
+
+**Compuertas para activar clasificación automática** (además del macro-F1 y el F1 de `other`):
+
+1. `critical_confusion.other→serve.count ≤ 1` sobre los 15 clips de smash en test.
+2. `threshold_reached_target: true` (si es `false`, el umbral no significa lo que dice).
+3. `accuracy_at_threshold ≥ 0.95` y `coverage_at_threshold ≥ 0.50`.
+
+Si no se cumplen, se documenta el lanzamiento en **modo asistido** (Paso 4) o se sigue iterando;
+no se activa la clasificación ciega aunque el macro-F1 suba.
+
+#### 3.5. Resultado del barrido de hiperparámetros (2026-11-17)
+
+Evidencia completa: `ml/metrics/sweep_results_20261117.json` y `ml/metrics/diagnostic.json`.
+Ninguna variante se publicó ni sobrescribió `ml/artifacts/pose_seq/` ni `ml/metrics/pose_seq.json`.
+
+| Variante | macro-F1 | F1 `other` | `other→serve` | Umbral | Cobertura | Precisión@umbral (test) |
+|---|---|---|---|---|---|---|
+| Baseline | 0.7594 | 0.6087 | 5/15 | 0.99 (fallback) | 0.70 | 0.8492 |
+| Solo boost ×2 | 0.7007 | 0.4762 | 8/15 | 0.99 (fallback) | 0.46 | 0.8537 |
+| **Boost ×2 + ruido 0.01 + warp 0.02 + penalización 0.5** | **0.7794** | **0.75** | **1/15** | 0.9992 (calibrado en val) | 0.23 | 0.8810 |
+| Penalización 1.0 | 0.7285 | 0.7647 | 0/15 | 0.99 (fallback) | 0.31 | 0.8393 |
+| Aumentación fuerte | 0.7279 | 0.80 | 0/15 | 0.99 (fallback) | 0.34 | 0.8548 |
+| Boost ×1.5 + aumentación + penalización | 0.7619 | 0.9375 | 0/15 | 0.9995 (calibrado en val) | 0.16 | 0.8929 |
+
+Conclusiones:
+
+- **Sí mejoró el riesgo crítico:** el error smash→saque baja de 5/15 a 1/15 con la variante
+  recomendada (y a 0/15 con boost ×1.5, a costa de cobertura).
+- **No se publica:** macro-F1 0.7794 < 0.90 y la precisión sobre lo aceptado en test es 0.881 < 0.95
+  aunque en validación el umbral sí alcance el objetivo (0.9505). Hay desplazamiento val→test y
+  sobreconfianza residual.
+- La cobertura cae al 23 %: el modo automático rechazaría 3 de cada 4 videos. En modo asistido
+  eso es aceptable porque el usuario declara el golpe; en modo automático no.
+- Se ha ampliado el grid de calibración por encima de 0.99 (`export.py:THRESHOLD_GRID`) porque el
+  softmax satura: antes se forzaba el fallback aunque existiera un umbral válido.
+- `ml/params.yaml` queda en la variante recomendada. Para reproducirla en Docker:
+  `docker compose -f deploy/docker-compose.yml --profile ml run --rm ml dvc repro export_pose_seq`.
+- **Siguiente decisión:** calibración por temperatura sobre pose_seq (ver §3.6: la ruta YOLO ya se
+  probó y se descartó). Hasta entonces, worker en `STROKE_CLASSIFIERS=user` y Fase 2 puede arrancar
+  con forehand declarado.
+
+---
+
+### 3.6. Resultado de la ruta YOLO (2026-11-17) — 🔴 descartada por ahora
+
+Se entrenó **YOLO11n** sobre las cajas automáticas derivadas de la pose (8 fotogramas por clip,
+11.232 imágenes de train y 3.168 de val), 50 épocas en GPU RTX 2080 Super (2,1 h). Evidencia:
+`ml/metrics/yolo.json`, `ml/runs/detect/artifacts/yolo/run/results.csv` y `ml/export/yolo/`.
+
+La evaluación no usa el mAP de detección de Ultralytics, sino **el `YoloFrameClassifier` que usa el
+worker en producción**, con las mismas compuertas que `pose_seq` (val para calibrar, test para decidir):
+
+| Modelo | macro-F1 | F1 `other` | `other→serve` | Umbral | Cobertura | Precisión@umbral (test) |
+|---|---|---|---|---|---|---|
+| pose_seq baseline | 0.7594 | 0.6087 | 5/15 | 0.99 (fallback) | 0.70 | 0.8492 |
+| pose_seq recomendado (§3.5) | 0.7794 | 0.75 | 1/15 | 0.9992 (calibrado) | 0.23 | 0.8810 |
+| **YOLO11n (este run)** | **0.6394** | **0.50** | **6/15** | 0.73 (calibrado en val) | 0.15 | 0.7407 |
+
+Detalles del run YOLO: accuracy 0.6667 en test; F1 por clase 0.5854 forehand, 0.6939 backhand,
+0.8276 serve, 0.5902 volley, 0.50 other. En validación el detector dio mAP50 0.578 (other 0.255),
+y el umbral sí alcanzó el objetivo (precisión 0.9577 en val), pero en test cae a 0.7407: hay un
+desplazamiento val→test aún mayor que en pose_seq.
+
+**Decisión:** YOLO no se publica. Falla todas las compuertas del §3.4 salvo `threshold_reached_target`:
+macro-F1 < 0.90, F1 `other` < 0.75, 6 errores smash→saque (límite 1), precisión@umbral 0.7407 < 0.95
+y cobertura 0.15 < 0.50. Además es peor que pose_seq en todas las dimensiones, cuesta 2 h de GPU
+y obligaría a publicar un modelo AGPL-3.0. El mejor pose_seq del barrido sigue siendo la referencia,
+aunque tampoco alcanza la publicación; se mantiene `STROKE_CLASSIFIERS=user`.
+
+**Incidencia resuelta:** la exportación de Ultralytics intentó autoinstalar `onnxslim`, que exige
+numpy≥2 y rompió `onnxruntime` 1.18 (numpy<2) a mitad del proceso. El ONNX generado es válido: se
+volvió a evaluar tras restaurar numpy 1.26.4 y dio métricas idénticas. `ml/src/tennis_ml/yolo.py`
+pasa ahora `simplify=False` al exportar, con un test de regresión en `ml/tests/test_yolo_eval.py`,
+para que futuros runs no degraden el entorno.
 
 ---
 
