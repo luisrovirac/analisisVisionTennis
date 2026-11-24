@@ -45,10 +45,11 @@ from tennis_worker.pipeline.knowledge.repository import (
 from tennis_worker.pipeline.orchestrator import AnalysisPipeline, PipelineStages
 from tennis_worker.pipeline.pose import PoseEstimator
 from tennis_worker.pipeline.pose.mediapipe_estimator import MediaPipePoseEstimator
+from tennis_worker.pipeline.pose.skeleton_correction import SkeletonCorrector
 from tennis_worker.pipeline.prioritization import CategoryImpactPrioritizer
 from tennis_worker.pipeline.quality import QualityAssessor
 from tennis_worker.pipeline.reference import ReferenceComparator, ReferenceProvider
-from tennis_worker.pipeline.segmentation import WristSpeedSegmenter
+from tennis_worker.pipeline.segmentation import PeakStrokeSegmenter
 from tennis_worker.pipeline.video import OpenCVVideoReader, VideoReader
 
 TRANSIENT_ERRORS: tuple[type[Exception], ...] = (
@@ -101,7 +102,7 @@ def build_pipeline(settings: Settings, registry: MetricRegistry, knowledge: Know
                    pose: tuple[PoseEstimator, str] | None = None,
                    references: ReferenceProvider | None = None) -> AnalysisPipeline:
     estimator, estimator_note = pose or (MediaPipePoseEstimator(settings.pose_model_path), "")
-    segmenter = WristSpeedSegmenter()
+    segmenter = PeakStrokeSegmenter(signal=settings.segmentation_signal)
     refiner = AudioImpactRefiner(PyAvAudioReader(max_seconds=settings.max_video_seconds + 5),
                                  rebuild=segmenter.segment_at) if settings.impact_from_audio else None
     return AnalysisPipeline(PipelineStages(
@@ -117,6 +118,7 @@ def build_pipeline(settings: Settings, registry: MetricRegistry, knowledge: Know
         prioritizer=CategoryImpactPrioritizer(),
         impact_refiner=refiner,
         smoothing_seconds=settings.pose_smoothing_seconds,
+        skeleton_corrector=SkeletonCorrector() if settings.pose_skeleton_correction else None,
         notes=(estimator_note,) if estimator_note and settings.pose_estimator != "mediapipe" else (),
         comparator=ReferenceComparator(references, min_confidence=settings.min_metric_confidence,
                                        similarity_scale_deg=settings.reference_similarity_scale_deg)

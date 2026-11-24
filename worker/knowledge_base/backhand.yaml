@@ -3,8 +3,11 @@
 # ⚠ Umbrales PROVISIONALES estimados para pose 2D desde video. El worker importa este archivo a Postgres
 #   la primera vez; a partir de ahí los cambios se hacen en el portal (experto propone, validador aprueba).
 # Guía: Docs/BASE_CONOCIMIENTO.md · Esquema: contracts/knowledge_base.schema.json
+# 0.2.0: BH-HEAD-001 pasa de head_stability > 0.25 a > 0.35 (saltaba con Rublev; cota 0,30). BH-SYNC-002
+#        solo con vista lateral o frontal: de espaldas saltaba con Zverev (cadera y hombros ambiguos).
+#        Ver Docs/VALIDACION_REGLAS.md (validación con profesionales dejando fuera a cada jugador, 2026-11-24).
 stroke: backhand
-version: 0.1.2
+version: 0.2.0
 validated_by: null
 
 rules:
@@ -161,7 +164,7 @@ rules:
     difficulty: 2
     when:
       all:
-        - {metric: head_stability, op: gt, value: 0.25}
+        - {metric: head_stability, op: gt, value: 0.35}
     explanation: >
       La cabeza se desplaza justo al golpear, normalmente por mirar antes de tiempo adónde va la bola.
     correction: >
@@ -208,6 +211,7 @@ rules:
     category: sincronizacion
     impact: 5
     difficulty: 5
+    views: [side, front]
     when:
       all:
         - {metric: kinetic_chain_sequence, op: eq, value: 0}

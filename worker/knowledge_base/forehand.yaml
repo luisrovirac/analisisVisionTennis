@@ -8,8 +8,10 @@
 #        desde el portal, el worker la actualiza solo a esta versión al arrancar.
 # 0.3.1: head_stability pasa a medirse en la imagen (largos de torso); umbrales 0.25 / 0.1.
 # 0.3.2: campo views: reglas que solo son fiables con vista de perfil (side) o frontal/trasera.
+# 0.4.0: FH-HEAD-001 pasa de head_stability > 0.25 a > 0.35: saltaba con Sinner y Lehecka (cota 0,32).
+#        Ver Docs/VALIDACION_REGLAS.md (validación con profesionales dejando fuera a cada jugador, 2026-11-24).
 stroke: forehand
-version: 0.3.2
+version: 0.4.0
 validated_by: null
 
 rules:
@@ -326,7 +328,7 @@ rules:
     difficulty: 2
     when:
       all:
-        - {metric: head_stability, op: gt, value: 0.25}
+        - {metric: head_stability, op: gt, value: 0.35}
     explanation: >
       La cabeza se desplaza justo cuando golpeas (normalmente por levantar la vista para mirar adónde
       va la bola). Eso mueve todo el eje del cuerpo y empeora la precisión del impacto.

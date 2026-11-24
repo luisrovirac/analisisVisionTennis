@@ -24,6 +24,7 @@ import argparse
 import os
 import re
 import sys
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,8 +32,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "worker" / "src"))
 
 from tennis_worker.pipeline.audio import AudioImpactRefiner, PyAvAudioReader  # noqa: E402
+from tennis_worker.pipeline.orchestrator import SizeRecordingStream, prepare_pose  # noqa: E402
 from tennis_worker.pipeline.pose.mediapipe_estimator import MediaPipePoseEstimator  # noqa: E402
-from tennis_worker.pipeline.pose.postprocess import interpolate_gaps, smooth_pose  # noqa: E402
+from tennis_worker.pipeline.pose.skeleton_correction import SkeletonCorrector  # noqa: E402
 from tennis_worker.pipeline.reference import ReferenceStroke  # noqa: E402
 from tennis_worker.pipeline.reference.acceptance import (  # noqa: E402
     DEFAULT_DETECTION_SCOPE,
@@ -47,7 +49,7 @@ from tennis_worker.pipeline.reference.serialization import (  # noqa: E402
     to_reference_artifact,
     upsert_index,
 )
-from tennis_worker.pipeline.segmentation import WristSpeedSegmenter  # noqa: E402
+from tennis_worker.pipeline.segmentation import PeakStrokeSegmenter  # noqa: E402
 from tennis_worker.pipeline.video import OpenCVVideoReader  # noqa: E402
 
 REF_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -65,16 +67,17 @@ def load_dotenv(path: Path) -> None:
 
 def build_reference(args: argparse.Namespace) -> ReferenceStroke:
     with OpenCVVideoReader(max_seconds=60).open(args.video) as stream:
-        pose = interpolate_gaps(MediaPipePoseEstimator(args.mediapipe_model).estimate(stream))
-    pose = smooth_pose(pose, args.smoothing)
-    segmenter = WristSpeedSegmenter()
+        sized = SizeRecordingStream(stream)
+        raw = replace(MediaPipePoseEstimator(args.mediapipe_model).estimate(sized), frame_size=sized.size)
+    pose = prepare_pose(raw, None if args.no_skeleton_correction else SkeletonCorrector(), args.smoothing)
+    segmenter = PeakStrokeSegmenter()
     if args.impact_frame is not None:
         if not 0 <= args.impact_frame < pose.frame_count:
             raise SystemExit(f"--impact-frame {args.impact_frame} fuera del clip (0-{pose.frame_count - 1})")
         seg, impact_source = segmenter.segment_at(pose, args.handedness, args.impact_frame), "fotograma manual"
     else:
         refined = AudioImpactRefiner(PyAvAudioReader(), rebuild=segmenter.segment_at).refine(
-            segmenter.segment(pose, args.handedness), pose, args.video, args.handedness)
+            segmenter.segment(pose, args.handedness, args.stroke), pose, args.video, args.handedness)
         seg, impact_source = refined.segment, refined.source
     criteria: AcceptanceCriteria = args.criteria
     assessment = assess_reference(pose, seg, criteria)
@@ -125,6 +128,8 @@ def main() -> None:
     parser.add_argument("--source", required=True, help="procedencia y permiso de uso del video")
     parser.add_argument("--mediapipe-model", type=Path, default=ROOT / "models" / "pose_landmarker_full.task")
     parser.add_argument("--smoothing", type=float, default=0.1)
+    parser.add_argument("--no-skeleton-correction", action="store_true",
+                        help="no deshacer inversiones izquierda/derecha ni picos (POSE_SKELETON_CORRECTION=false)")
     parser.add_argument("--endpoint", default="", help="host:puerto S3 (por defecto S3_PUBLIC_ENDPOINT)")
     parser.add_argument("--dry-run", action="store_true", help="analiza y valida, sin subir nada")
     parser.add_argument("--force", action="store_true", help="registra aunque la pose no sea fiable")

@@ -85,6 +85,9 @@ desde un video no coinciden exactamente. Para ajustar un umbral:
    editor de la regla: barre el umbral contra las calificaciones de los expertos en los casos de
    *calibración* y muestra precisión, recall y F1 para cada valor. Los casos de *test* nunca se usan
    para ajustar: sirven para validar sin sesgo.
+5. Antes de endurecer un umbral, comprueba que no castiga a profesionales: `scripts/validate_rules.py` da,
+   para cada condición, la cota hasta la que puede llegar (validada dejando fuera a cada jugador). Resultados
+   y recomendaciones en [VALIDACION_REGLAS.md](VALIDACION_REGLAS.md).
 
 Fuentes útiles para redactar reglas nuevas (campo `references`): *Biomechanics of Advanced Tennis*
 (Elliott, Reid y Crespo, ITF, 2003); *Biomechanical Principles of Tennis Technique* (Knudson, 2006);
@@ -349,7 +352,7 @@ yt-dlp), pasadas por las métricas y las reglas de `forehand.yaml` sin filtrar p
 | Regla | Disparos en profesionales | Diagnóstico |
 | --- | --- | --- |
 | `FH-SYNC-002` (cadena cinética desordenada) | 6/21 → **2/21** | Falso positivo por resolución temporal: los picos de cadera y hombros caen en el mismo fotograma o se invierten por uno. `kinetic_chain_sequence` tolera ahora 1 fotograma a 30 fps (2 a 60 fps). Afecta también a revés y saque. |
-| `FH-HEAD-001` (cabeza se mueve, `head_stability > 0.25`) | 2/21 | El p90 de los profesionales es 0,24, justo al borde del umbral. Habría que subirlo a ~0,3 desde el portal si los principiantes lo confirman. |
+| `FH-HEAD-001` (cabeza se mueve, `head_stability > 0.25`) | 2/21 | El p90 de los profesionales es 0,24, justo al borde del umbral. **Subido a 0,35 en la semilla 0.4.0** (24-11-2026, ver [VALIDACION_REGLAS.md](VALIDACION_REGLAS.md)). |
 | `FH-LEG-001` | 1/21 | Aceptable. |
 
 Medianas en profesionales: `shoulder_rotation_range` 91°, `hip_shoulder_separation_max` 28°, `knee_angle_min`

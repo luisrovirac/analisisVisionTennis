@@ -20,7 +20,7 @@ import argparse
 import json
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -32,9 +32,10 @@ from tennis_worker.pipeline.audio import AudioImpactRefiner, PyAvAudioReader  # 
 from tennis_worker.pipeline.biomechanics.base import MetricContext  # noqa: E402
 from tennis_worker.pipeline.biomechanics.registry import default_registry  # noqa: E402
 from tennis_worker.pipeline.biomechanics.robustness import TemporalRobustness  # noqa: E402
+from tennis_worker.pipeline.orchestrator import SizeRecordingStream, prepare_pose  # noqa: E402
 from tennis_worker.pipeline.pose import PoseEstimator  # noqa: E402
-from tennis_worker.pipeline.pose.postprocess import interpolate_gaps, smooth_pose  # noqa: E402
-from tennis_worker.pipeline.segmentation import WristSpeedSegmenter  # noqa: E402
+from tennis_worker.pipeline.pose.skeleton_correction import SkeletonCorrector  # noqa: E402
+from tennis_worker.pipeline.segmentation import PeakStrokeSegmenter  # noqa: E402
 from tennis_worker.pipeline.video import OpenCVVideoReader  # noqa: E402
 
 MIN_CONFIDENCE = 0.5
@@ -82,11 +83,12 @@ def build_estimators(args: argparse.Namespace) -> dict[str, PoseEstimator]:
 def analyse(name: str, estimator: PoseEstimator, video: Path, args: argparse.Namespace) -> Run:
     started = time.perf_counter()
     with OpenCVVideoReader(max_seconds=60).open(video) as stream:
-        pose = interpolate_gaps(estimator.estimate(stream))
+        sized = SizeRecordingStream(stream)
+        raw = replace(estimator.estimate(sized), frame_size=sized.size)
     seconds = time.perf_counter() - started
-    pose = smooth_pose(pose, args.smoothing)
-    segmenter = WristSpeedSegmenter()
-    segment = segmenter.segment(pose, args.handedness)
+    pose = prepare_pose(raw, None if args.no_skeleton_correction else SkeletonCorrector(), args.smoothing)
+    segmenter = PeakStrokeSegmenter()
+    segment = segmenter.segment(pose, args.handedness, args.stroke)
     refined = AudioImpactRefiner(PyAvAudioReader(), rebuild=segmenter.segment_at).refine(
         segment, pose, video, args.handedness)
     uncertainty = 1.0 / pose.fps if refined.source == "audio" else 0.0
@@ -126,6 +128,8 @@ def main() -> None:
     parser.add_argument("--motionbert", type=Path, default=None, help="model.onnx de ml/export/motionbert")
     parser.add_argument("--cache", type=Path, default=ROOT / "models" / "cache")
     parser.add_argument("--smoothing", type=float, default=0.1)
+    parser.add_argument("--no-skeleton-correction", action="store_true",
+                        help="no deshacer inversiones izquierda/derecha ni picos")
     parser.add_argument("--json", type=Path, default=None, help="guarda los resultados en JSON")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[union-attr]  # consolas de Windows

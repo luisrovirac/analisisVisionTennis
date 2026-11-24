@@ -11,18 +11,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from tennis_worker.contracts import Handedness
-from tennis_worker.pipeline.landmarks import Landmark
+from tennis_worker.pipeline.landmarks import MIRROR_ORDER, Landmark
 from tennis_worker.pipeline.types import LANDMARK_COUNT, PoseSequence
 
 FEATURE_SET = "world_xyz_torso_v1"
 FEATURES_PER_FRAME = LANDMARK_COUNT * 3
-
-# Pares izquierda/derecha de MediaPipe Pose: al espejar un zurdo se intercambian.
-_MIRROR_PAIRS = [(1, 4), (2, 5), (3, 6), (7, 8), (9, 10), (11, 12), (13, 14), (15, 16), (17, 18),
-                 (19, 20), (21, 22), (23, 24), (25, 26), (27, 28), (29, 30), (31, 32)]
-_MIRROR_ORDER = np.arange(LANDMARK_COUNT)
-for _a, _b in _MIRROR_PAIRS:
-    _MIRROR_ORDER[_a], _MIRROR_ORDER[_b] = _b, _a
 
 Float32Array = NDArray[np.float32]
 
@@ -38,7 +31,7 @@ def sequence_features(pose: PoseSequence, handedness: Handedness, seq_len: int) 
         return np.zeros((seq_len, FEATURES_PER_FRAME), dtype=np.float32)
     world = np.nan_to_num(pose.world.astype(np.float64))
     if handedness == "left":
-        world = world[:, _MIRROR_ORDER, :] * np.array([-1.0, 1.0, 1.0])
+        world = world[:, MIRROR_ORDER, :] * np.array([-1.0, 1.0, 1.0])
     world = world / _torso_length(world)
     flat = world.reshape(pose.frame_count, FEATURES_PER_FRAME)
     return _resample(flat, seq_len).astype(np.float32)

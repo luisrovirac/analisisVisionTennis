@@ -4,8 +4,14 @@
 # ⚠ Umbrales PROVISIONALES estimados para pose 2D desde video. El worker importa este archivo a Postgres
 #   la primera vez; a partir de ahí los cambios se hacen en el portal (experto propone, validador aprueba).
 # Guía: Docs/BASE_CONOCIMIENTO.md · Esquema: contracts/knowledge_base.schema.json
+# 1.0.0 (major: se retira una regla): SV-SYNC-001 (cadena cinética desordenada) retirada: saltaba en 2 de 6
+#        sesiones de profesionales; a 30 fps el orden de los picos del saque no es fiable. Volver a
+#        proponerla desde el portal cuando haya vídeo en cámara lenta. SV-TROPHY-001: límite superior de
+#        130° a 140° (cota de los profesionales 134,7°) y solo con vista lateral o frontal (de espaldas el
+#        codo se ve más abierto: Zverev, 142°).
+#        Ver Docs/VALIDACION_REGLAS.md (validación con profesionales dejando fuera a cada jugador, 2026-11-24).
 stroke: serve
-version: 0.1.2
+version: 1.0.0
 validated_by: null
 
 rules:
@@ -74,10 +80,11 @@ rules:
     category: fundamental
     impact: 3
     difficulty: 3
+    views: [side, front]
     when:
       any:
         - {metric: trophy_elbow_angle, op: lt, value: 70}
-        - {metric: trophy_elbow_angle, op: gt, value: 130}
+        - {metric: trophy_elbow_angle, op: gt, value: 140}
     explanation: >
       En la posición de trofeo el codo del brazo de golpeo está demasiado cerrado o demasiado
       estirado. Lo habitual es un ángulo cercano a 90°, con el codo a la altura del hombro o algo más
@@ -153,22 +160,6 @@ rules:
       hacia delante al golpear.
     drills:
       - "Sombra del saque empezando de perfil con los hombros girados hacia la valla del fondo."
-
-  - id: SV-SYNC-001
-    title: Cadena cinética desordenada
-    category: sincronizacion
-    impact: 5
-    difficulty: 5
-    when:
-      all:
-        - {metric: kinetic_chain_sequence, op: eq, value: 0}
-    explanation: >
-      Piernas, cadera, hombros y brazo no alcanzan su máxima velocidad en orden. En el saque la
-      energía debe subir desde el suelo hasta la raqueta.
-    correction: >
-      Trabaja el saque a velocidad lenta: piernas, cadera, tronco y por último brazo.
-    drills:
-      - "Lanzamientos de balón medicinal por encima de la cabeza empezando con las piernas."
 
   - id: SV-SYNC-002
     title: Cadera y hombros giran en bloque

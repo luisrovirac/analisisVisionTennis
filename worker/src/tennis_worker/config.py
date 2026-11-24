@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     min_pose_detection_rate: float = Field(default=0.6, gt=0, le=1)
     min_metric_confidence: float = Field(default=0.5, ge=0, le=1)
     # Robustez de la medición (fase 1 de la mejora de la pose 2D; ver Docs/BASE_CONOCIMIENTO.md).
+    # Señal del segmentador: velocidad de la muñeca en la imagen (torsos/s) o en world (m/s). "image" acierta
+    # mejor el impacto en el banco de pruebas (scripts/bench_segmentation.py: 41/48 frente a 34/48).
+    segmentation_signal: Literal["world", "image"] = "image"
+    pose_skeleton_correction: bool = True  # inversiones izquierda/derecha y picos (pose/skeleton_correction.py)
     pose_smoothing_seconds: float = Field(default=0.1, ge=0, le=0.5)  # Savitzky-Golay; 0 = sin suavizado
     impact_from_audio: bool = True  # fija el impacto con el sonido del golpe cuando se oye
     metric_sensitivity_check: bool = True  # recalcula cada métrica moviendo el impacto dentro de su incertidumbre

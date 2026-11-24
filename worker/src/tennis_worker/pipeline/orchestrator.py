@@ -27,6 +27,7 @@ from tennis_worker.pipeline.knowledge.engine import RuleEngine
 from tennis_worker.pipeline.knowledge.repository import KnowledgeBaseRepository
 from tennis_worker.pipeline.pose import PoseEstimator
 from tennis_worker.pipeline.pose.postprocess import interpolate_gaps, smooth_pose
+from tennis_worker.pipeline.pose.skeleton_correction import SkeletonCorrector
 from tennis_worker.pipeline.prioritization import Prioritizer
 from tennis_worker.pipeline.quality import QualityAssessor
 from tennis_worker.pipeline.reference import ReferenceComparator
@@ -52,6 +53,7 @@ class PipelineStages:
     smoothing_seconds: float = 0.0  # ventana del suavizado Savitzky-Golay (0 = desactivado)
     notes: tuple[str, ...] = field(default_factory=tuple)  # razones fijas de fiabilidad (p. ej. estimador)
     comparator: ReferenceComparator | None = None  # None = sin comparación con referentes (DTW)
+    skeleton_corrector: SkeletonCorrector | None = None  # None = la pose del estimador tal cual
 
 
 @dataclass(frozen=True)
@@ -78,7 +80,7 @@ class AnalysisPipeline:
             stroke = decision.stroke
             kb = self._s.knowledge.load(stroke)
         with self._obs.stage("segment"):
-            segment = self._s.segmenter.segment(pose, job.handedness)
+            segment = self._s.segmenter.segment(pose, job.handedness, stroke)
             notes = list(self._s.notes)
             uncertainty = 0.0  # desconocida: la decide la etapa de métricas
             if self._s.impact_refiner is not None:
@@ -133,12 +135,27 @@ class AnalysisPipeline:
 
     def _estimate_pose(self, video_path: Path) -> PoseSequence:
         with self._s.video_reader.open(video_path) as stream:
-            sized = _SizeRecordingStream(stream)
-            pose = interpolate_gaps(self._s.pose_estimator.estimate(sized))
-        return replace(smooth_pose(pose, self._s.smoothing_seconds), frame_size=sized.size)
+            sized = SizeRecordingStream(stream)
+            raw = replace(self._s.pose_estimator.estimate(sized), frame_size=sized.size)
+        return prepare_pose(raw, self._s.skeleton_corrector, self._s.smoothing_seconds)
 
 
-class _SizeRecordingStream:
+def prepare_pose(raw: PoseSequence, corrector: SkeletonCorrector | None, smoothing_seconds: float) -> PoseSequence:
+    """Pose cruda del estimador → corregida → huecos interpolados → suavizada. El orden importa: un volteo
+    o un pico ya interpolado o suavizado deja de ser detectable. Los scripts de referencias usan esta misma
+    función para que las referencias se procesen igual que los análisis."""
+    pose = raw
+    if corrector is not None:
+        correction = corrector.correct(raw)
+        if correction.changed:
+            logger.info("esqueleto corregido", extra={"flipped_frames": int(correction.flipped.sum()),
+                                                      "spike_points": int(correction.spikes.sum()),
+                                                      "frames": raw.frame_count})
+        pose = correction.pose
+    return smooth_pose(interpolate_gaps(pose), smoothing_seconds)
+
+
+class SizeRecordingStream:
     """Deja pasar los fotogramas y recuerda su tamaño (ancho, alto) para el artefacto de pose."""
 
     def __init__(self, inner: VideoStream) -> None:

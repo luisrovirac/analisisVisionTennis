@@ -50,9 +50,10 @@ interfaz (`Protocol`) con su implementación actual:
 | --- | --- | --- | --- |
 | Lectura de video | `VideoReader` | `OpenCVVideoReader` (≤720p, streaming) | — |
 | Pose | `PoseEstimator` | `MediaPipePoseEstimator` (33 puntos + coordenadas world) | Equipo ML: otros modelos |
+| Corrección del esqueleto | `SkeletonCorrector` | Deshace inversiones izquierda/derecha del cuerpo entero (Viterbi) y picos de un fotograma, antes de interpolar y suavizar (`POSE_SKELETON_CORRECTION`) | Ancla de raqueta para tramos largos invertidos |
 | Calidad | `QualityAssessor` | Tasa de detección, fps, vista | — |
 | Clasificación | `StrokeRecognizer` = `StrokeClassifier`s + `ClassifierCombiner` | `user`, `pose_seq` (GRU/ONNX), `yolo` (ONNX) | Equipo ML (`ml/`) |
-| Segmentación | `StrokeSegmenter` | `WristSpeedSegmenter` (pico de velocidad de muñeca) | Biomecánica/ML |
+| Segmentación | `StrokeSegmenter` | `PeakStrokeSegmenter`: todos los golpes del video (picos de velocidad de la muñeca respecto a la cadera; saque por altura de la muñeca); el informe usa el de mayor pico. Ver [BANCO_SEGMENTACION.md](BANCO_SEGMENTACION.md) | Informe por sesión (varios golpes) |
 | Métricas | `Metric` + `MetricRegistry` | 7 métricas de forehand | **Biomecánica** |
 | Reglas | `RuleEngine` + YAML | Umbrales provisionales | **Entrenadores** |
 | Priorización | `Prioritizer` | Fundamental → sincronización; impacto ↓, dificultad ↑ | Entrenadores |

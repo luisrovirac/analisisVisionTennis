@@ -207,6 +207,7 @@ def test_settings_robustness_defaults(tmp_path: Path, monkeypatch: pytest.Monkey
     settings = Settings()  # type: ignore[call-arg]
     assert settings.pose_estimator == "mediapipe" and settings.impact_from_audio
     assert settings.pose_smoothing_seconds == 0.1 and settings.metric_sensitivity_check
+    assert settings.pose_skeleton_correction
 
 
 def test_motionbert_estimator_requires_a_model_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
