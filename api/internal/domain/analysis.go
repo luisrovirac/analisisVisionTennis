@@ -119,7 +119,19 @@ func (a Analysis) Deletable() bool {
 // ObjectKeys lista los objetos del almacenamiento que pertenecen al análisis: el video
 // subido y la secuencia de pose que escribe el worker (contracts/pose_sequence.schema.json).
 func (a Analysis) ObjectKeys() []string {
-	return []string{a.VideoKey, "poses/" + a.ID + ".json"}
+	return []string{a.VideoKey, a.PoseKey()}
+}
+
+// PoseKey es la clave de la secuencia de pose por frame que escribe el worker.
+func (a Analysis) PoseKey() string {
+	return "poses/" + a.ID + ".json"
+}
+
+// MediaLinks son URLs firmadas de solo lectura para reproducir el video con el esqueleto superpuesto.
+type MediaLinks struct {
+	VideoURL  string
+	PoseURL   string
+	ExpiresAt time.Time
 }
 
 // NewAnalysis crea un análisis que pertenece a ownerID (users.id).

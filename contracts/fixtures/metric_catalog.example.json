@@ -40,5 +40,227 @@
     "id": "kinetic_chain_sequence",
     "label": "Secuencia de la cadena cinética (cadera → hombros → brazo)",
     "unit": "bool"
+  },
+  {
+    "stroke": "forehand",
+    "id": "stance_width_ratio",
+    "label": "Anchura de la base (tobillos / hombros) en el impacto",
+    "unit": "ratio"
+  },
+  {
+    "stroke": "forehand",
+    "id": "head_stability",
+    "label": "Movimiento de la cabeza alrededor del impacto (en largos de torso)",
+    "unit": "ratio"
+  },
+  {
+    "stroke": "forehand",
+    "id": "racket_drop_below_contact",
+    "label": "Caída de la raqueta por debajo del impacto (swing de abajo arriba)",
+    "unit": "m"
+  },
+  {
+    "stroke": "forehand",
+    "id": "leg_drive",
+    "label": "Empuje de piernas (extensión de rodilla hasta el impacto)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "forehand",
+    "id": "unit_turn_lead_time",
+    "label": "Antelación de la preparación (giro de hombros antes del impacto)",
+    "unit": "s"
+  },
+  {
+    "stroke": "forehand",
+    "id": "off_arm_extension",
+    "label": "Uso del brazo libre en la preparación",
+    "unit": "m"
+  },
+  {
+    "stroke": "backhand",
+    "id": "shoulder_rotation_range",
+    "label": "Rotación de hombros (preparación → impacto)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "backhand",
+    "id": "hip_shoulder_separation_max",
+    "label": "Separación cadera-hombros máxima",
+    "unit": "deg"
+  },
+  {
+    "stroke": "backhand",
+    "id": "elbow_angle_at_impact",
+    "label": "Ángulo del codo en el impacto",
+    "unit": "deg"
+  },
+  {
+    "stroke": "backhand",
+    "id": "knee_angle_min",
+    "label": "Flexión de rodillas (ángulo mínimo; 180 = pierna recta)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "backhand",
+    "id": "contact_point_ahead",
+    "label": "Punto de impacto adelantado",
+    "unit": "m"
+  },
+  {
+    "stroke": "backhand",
+    "id": "follow_through_height",
+    "label": "Altura de la terminación sobre el hombro",
+    "unit": "m"
+  },
+  {
+    "stroke": "backhand",
+    "id": "kinetic_chain_sequence",
+    "label": "Secuencia de la cadena cinética (cadera → hombros → brazo)",
+    "unit": "bool"
+  },
+  {
+    "stroke": "backhand",
+    "id": "stance_width_ratio",
+    "label": "Anchura de la base (tobillos / hombros) en el impacto",
+    "unit": "ratio"
+  },
+  {
+    "stroke": "backhand",
+    "id": "head_stability",
+    "label": "Movimiento de la cabeza alrededor del impacto (en largos de torso)",
+    "unit": "ratio"
+  },
+  {
+    "stroke": "backhand",
+    "id": "racket_drop_below_contact",
+    "label": "Caída de la raqueta por debajo del impacto (swing de abajo arriba)",
+    "unit": "m"
+  },
+  {
+    "stroke": "backhand",
+    "id": "leg_drive",
+    "label": "Empuje de piernas (extensión de rodilla hasta el impacto)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "backhand",
+    "id": "unit_turn_lead_time",
+    "label": "Antelación de la preparación (giro de hombros antes del impacto)",
+    "unit": "s"
+  },
+  {
+    "stroke": "backhand",
+    "id": "wrist_separation_at_impact",
+    "label": "Separación de las muñecas en el impacto (dos manos < 0,2 m)",
+    "unit": "m"
+  },
+  {
+    "stroke": "serve",
+    "id": "knee_angle_min",
+    "label": "Flexión de rodillas (ángulo mínimo; 180 = pierna recta)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "serve",
+    "id": "leg_drive",
+    "label": "Empuje de piernas (extensión de rodilla hasta el impacto)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "serve",
+    "id": "elbow_angle_at_impact",
+    "label": "Ángulo del codo en el impacto",
+    "unit": "deg"
+  },
+  {
+    "stroke": "serve",
+    "id": "contact_height",
+    "label": "Altura del impacto sobre la cabeza",
+    "unit": "m"
+  },
+  {
+    "stroke": "serve",
+    "id": "trophy_elbow_angle",
+    "label": "Ángulo del codo en la posición de trofeo",
+    "unit": "deg"
+  },
+  {
+    "stroke": "serve",
+    "id": "toss_arm_height",
+    "label": "Altura del brazo de lanzamiento en la posición de trofeo",
+    "unit": "m"
+  },
+  {
+    "stroke": "serve",
+    "id": "shoulder_tilt_at_trophy",
+    "label": "Inclinación de hombros en la posición de trofeo",
+    "unit": "deg"
+  },
+  {
+    "stroke": "serve",
+    "id": "shoulder_rotation_range",
+    "label": "Rotación de hombros (preparación → impacto)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "serve",
+    "id": "hip_shoulder_separation_max",
+    "label": "Separación cadera-hombros máxima",
+    "unit": "deg"
+  },
+  {
+    "stroke": "serve",
+    "id": "kinetic_chain_sequence",
+    "label": "Secuencia de la cadena cinética (cadera → hombros → brazo)",
+    "unit": "bool"
+  },
+  {
+    "stroke": "volley",
+    "id": "backswing_wrist_travel",
+    "label": "Longitud del armado (recorrido de la muñeca antes del impacto)",
+    "unit": "m"
+  },
+  {
+    "stroke": "volley",
+    "id": "follow_through_length",
+    "label": "Longitud de la terminación (recorrido de la muñeca tras el impacto)",
+    "unit": "m"
+  },
+  {
+    "stroke": "volley",
+    "id": "contact_point_ahead",
+    "label": "Punto de impacto adelantado",
+    "unit": "m"
+  },
+  {
+    "stroke": "volley",
+    "id": "elbow_angle_at_impact",
+    "label": "Ángulo del codo en el impacto",
+    "unit": "deg"
+  },
+  {
+    "stroke": "volley",
+    "id": "knee_angle_min",
+    "label": "Flexión de rodillas (ángulo mínimo; 180 = pierna recta)",
+    "unit": "deg"
+  },
+  {
+    "stroke": "volley",
+    "id": "stance_width_ratio",
+    "label": "Anchura de la base (tobillos / hombros) en el impacto",
+    "unit": "ratio"
+  },
+  {
+    "stroke": "volley",
+    "id": "head_stability",
+    "label": "Movimiento de la cabeza alrededor del impacto (en largos de torso)",
+    "unit": "ratio"
+  },
+  {
+    "stroke": "volley",
+    "id": "shoulder_rotation_range",
+    "label": "Rotación de hombros (preparación → impacto)",
+    "unit": "deg"
   }
 ]

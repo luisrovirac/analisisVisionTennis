@@ -26,11 +26,16 @@
   <details class="card guide" open>
     <summary>Cómo grabar para un buen análisis</summary>
     <ul>
-      <li><strong>De perfil</strong> (cámara a tu lado, perpendicular a la dirección del golpe).</li>
-      <li><strong>Cuerpo entero visible</strong>, de pies a cabeza, durante todo el golpe.</li>
-      <li>Cámara fija a <strong>3–6 m</strong>, a la altura de la cadera.</li>
-      <li><strong>Un solo golpe</strong> por video, de 3 a 10 segundos. Si puedes, a 60 fps.</li>
-      <li>Buena luz; evita contraluz.</li>
+      <li><strong>Móvil en trípode o apoyado</strong>: nunca en la mano (la cámara debe estar quieta).</li>
+      <li><strong>De perfil</strong> (cámara a tu lado, perpendicular a la dirección del golpe). Para revisar la
+        anchura de la base o la inclinación de hombros del saque, graba otro video de frente o de espaldas.</li>
+      <li><strong>Cuerpo entero visible</strong>, de pies a cabeza, durante todo el golpe, ocupando al menos
+        media altura de la imagen.</li>
+      <li>Cámara a <strong>4–6 m</strong>, a la altura de la cadera.</li>
+      <li><strong>60 fps o más</strong> (o cámara lenta). A 30 fps el impacto cae entre fotogramas.</li>
+      <li><strong>Con sonido</strong>: el golpe de la bola sirve para fijar el instante exacto del impacto.</li>
+      <li><strong>Un solo golpe</strong> por video, de 3 a 10 segundos. Buena luz, sin contraluz, y que no
+        haya otras personas en la imagen.</li>
     </ul>
   </details>
 
@@ -40,9 +45,9 @@
         <select name="stroke_type">
           <option value="">Detectar automáticamente</option>
           <option value="forehand" selected>Forehand (derecha)</option>
-          <option value="backhand" disabled>Revés (próximamente)</option>
-          <option value="serve" disabled>Saque (próximamente)</option>
-          <option value="volley" disabled>Volea (próximamente)</option>
+          <option value="backhand">Revés</option>
+          <option value="serve">Saque</option>
+          <option value="volley">Volea</option>
         </select>
       </label>
       <label>Mano dominante
@@ -77,7 +82,13 @@
 
   <section id="result" hidden>
     <div id="warnings"></div>
+    <section id="viewer-section" class="card" hidden>
+      <h2>Tu golpe, fotograma a fotograma</h2>
+      <p class="muted">Pulsa «Ver en el video» en un error o punto fuerte para saltar al impacto y resaltar las articulaciones medidas.</p>
+      <div id="viewer"></div>
+    </section>
     <div id="diagnosis" class="card summary" hidden></div>
+    <div id="comparison"></div>
     <section id="strengths-section" hidden>
       <h2>Lo que haces bien</h2>
       <ul id="strengths"></ul>
@@ -111,6 +122,7 @@
   </section>
 </main>
 <script src="auth.js"></script>
+<script src="skeleton-viewer.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

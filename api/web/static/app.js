@@ -12,6 +12,8 @@ const STATUS_LABEL = { ...STATUS_TEXT, completed: "Completado", failed: "Falló"
 // Mientras el worker procesa, la API rechaza el borrado (409): el botón se desactiva.
 const BUSY_STATUSES = new Set(["queued", "processing"]);
 let shownAnalysisId = null;
+let viewer = null; // SkeletonViewer del análisis mostrado
+let shownReport = null;
 
 const $ = (sel) => document.querySelector(sel);
 const form = $("#upload-form");
@@ -146,6 +148,7 @@ async function deleteAnalysis(id, label, button) {
     if (shownAnalysisId === id) {
       $("#result").hidden = true;
       shownAnalysisId = null;
+      closeViewer();
     }
     await loadHistory();
   } catch (err) {
@@ -234,10 +237,14 @@ function showStatus(text, { progress, error = false } = {}) {
 function render(analysis) {
   const report = analysis.report;
   shownAnalysisId = analysis.id;
+  shownReport = report;
+  showViewer(analysis);
   $("#status").hidden = true;
   $("#result").hidden = false;
   $("#warnings").replaceChildren(...report.quality.warnings.map((w) => el("p", { className: "warning" }, w)));
   renderDiagnosis(report.diagnosis);
+  const comparison = SkeletonViewer.comparisonCard(report.reference_comparison);
+  $("#comparison").replaceChildren(...(comparison ? [comparison] : []));
   const strengths = report.strengths || [];
   $("#strengths-section").hidden = strengths.length === 0;
   $("#strengths").replaceChildren(...strengths.map(strengthItem));
@@ -253,6 +260,41 @@ function render(analysis) {
   review.checked = analysis.expert_review_allowed !== false;
   review.onchange = () => updateExpertReview(analysis.id, review);
   $("#metrics tbody").replaceChildren(...report.metrics.map(metricRow));
+}
+
+// El video con el esqueleto se carga aparte (URLs firmadas de /media) para no retrasar el informe.
+async function showViewer(analysis) {
+  closeViewer();
+  const section = $("#viewer-section");
+  const box = $("#viewer");
+  section.hidden = false;
+  box.replaceChildren(el("p", { className: "muted" }, "Cargando video y esqueleto…"));
+  try {
+    const media = await parseResponse(await apiFetch(`/v1/analyses/${analysis.id}/media`));
+    const pose = await SkeletonViewer.loadPose(media.pose_url);
+    if (shownAnalysisId !== analysis.id) return; // el usuario abrió otro análisis entretanto
+    viewer = SkeletonViewer.create(box, { videoUrl: media.video_url, pose, segment: analysis.report.segment });
+  } catch (err) {
+    if (shownAnalysisId === analysis.id) box.replaceChildren(el("p", { className: "muted" }, `No pudimos cargar el video: ${err.message}`));
+  }
+}
+
+function closeViewer() {
+  if (viewer) viewer.destroy();
+  viewer = null;
+}
+
+// Salta al impacto y resalta las articulaciones de las métricas que sustentan el hallazgo.
+function showInVideo(evidence, tone) {
+  if (!viewer || !shownReport) return;
+  const landmarks = SkeletonViewer.landmarksFor(shownReport, Object.keys(evidence || {}));
+  viewer.focus(shownReport.segment.impact_frame, landmarks, tone);
+}
+
+function videoButton(evidence, tone) {
+  const b = el("button", { type: "button", className: "secondary sv-jump" }, "Ver en el video");
+  b.addEventListener("click", () => showInVideo(evidence, tone));
+  return b;
 }
 
 const RELIABILITY_LABEL = { high: "alta", medium: "media", low: "baja" };
@@ -278,7 +320,8 @@ function strengthItem(s) {
   return el("li", {},
     el("h3", {}, s.title),
     el("p", {}, s.why_it_matters),
-    s.how_to_maintain ? el("p", { className: "correction" }, el("strong", {}, "Cómo aprovecharlo: "), s.how_to_maintain) : "");
+    s.how_to_maintain ? el("p", { className: "correction" }, el("strong", {}, "Cómo aprovecharlo: "), s.how_to_maintain) : "",
+    videoButton(s.evidence, "strength"));
 }
 
 function renderPlan(plan) {
@@ -319,14 +362,17 @@ function findingItems(findings) {
       el("h3", {}, f.title),
       el("p", {}, f.explanation),
       el("p", { className: "correction" }, el("strong", {}, "Corrección: "), f.correction),
-      f.drills.length ? el("ul", {}, ...f.drills.map((d) => el("li", {}, d))) : ""
+      f.drills.length ? el("ul", {}, ...f.drills.map((d) => el("li", {}, d))) : "",
+      videoButton(f.evidence, "error")
     )
   );
 }
 
 function metricRow(m) {
   const value = m.unit === "bool" ? (m.value ? "sí" : "no") : `${m.value.toFixed(2)} ${m.unit}`;
-  return el("tr", {}, el("td", {}, m.label), el("td", {}, value), el("td", {}, `${Math.round(m.confidence * 100)}%`));
+  const label = el("button", { type: "button", className: "link", title: "Ver en el video" }, m.label);
+  label.addEventListener("click", () => showInVideo({ [m.id]: m.value }, "error"));
+  return el("tr", {}, el("td", {}, label), el("td", {}, value), el("td", {}, `${Math.round(m.confidence * 100)}%`));
 }
 
 // Construye nodos con textContent: nunca se inyecta HTML del servidor (evita XSS).

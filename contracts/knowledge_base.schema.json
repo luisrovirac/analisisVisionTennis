@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "tennis-vision/knowledge_base/2.0",
+  "$id": "tennis-vision/knowledge_base/2.1",
   "title": "KnowledgeBase",
   "description": "Base de conocimiento de un golpe. Es el formato de la semilla YAML (worker/knowledge_base/*.yaml) y del snapshot inmutable de cada versión publicada (kb_releases.snapshot). La validan el worker (pipeline/knowledge/models.py) y la API (internal/domain/knowledge.go); además, cada métrica citada debe existir en el catálogo del golpe (metric_catalog).",
   "type": "object",
@@ -9,7 +9,7 @@
   "properties": {
     "stroke": {"enum": ["forehand", "backhand", "serve", "volley"]},
     "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$"},
-    "validated_by": {"type": ["string", "null"], "description": "Legado del YAML. La validación real es por regla (rules[].validated)."},
+    "validated_by": {"type": ["string", "null"], "description": "Legado del YAML. La validación real es por regla (rules[].validation_status)."},
     "rules": {"type": "array", "items": {"$ref": "#/$defs/rule"}}
   },
   "$defs": {
@@ -55,7 +55,26 @@
         "caused_by": {"type": "array", "items": {"type": "string"}, "description": "Solo errores: ids de errores que explican este (causa raíz)."},
         "suppressed_by": {"type": "array", "items": {"type": "string"}, "description": "Solo fortalezas: no se elogia si aparece alguno de estos errores."},
         "references": {"type": "array", "items": {"type": "string"}},
-        "validated": {"type": "boolean", "description": "Lo fija la API al aprobar un validador. Un experto no puede marcarlo."}
+        "views": {"type": "array", "items": {"enum": ["side", "front", "back"]}, "uniqueItems": true, "description": "Vistas de cámara en las que la regla es fiable. Vacío u omitido = todas. Fuera de ellas el worker no la evalúa."},
+        "validation_status": {"enum": ["heuristic_unvalidated", "expert_reviewed", "empirically_validated"], "default": "heuristic_unvalidated", "description": "KB 2.1. heuristic_unvalidated: sin revisión (semillas). expert_reviewed: un validador aprobó su lógica y contenido. empirically_validated: además acierta contra el ground truth de consenso en test (n ≥ 30, precisión y recall ≥ 0,8). Lo fija la API al aprobar."},
+        "validation": {"$ref": "#/$defs/validation"},
+        "evidence": {"type": "string", "maxLength": 2000, "description": "Justificación del experto (literatura, observaciones, casos)."},
+        "evidence_level": {"enum": ["provisional", "literature", "expert_validated"]},
+        "validated": {"type": "boolean", "description": "Legado de KB 2.0: validation_status != heuristic_unvalidated. Lo fija la API al aprobar un validador."}
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Traza de la validación (solo ids de usuario; nunca llega al reporte).",
+      "properties": {
+        "validated_by": {"type": "array", "items": {"type": "string"}},
+        "validated_at": {"type": "string", "format": "date-time"},
+        "n": {"type": "integer", "minimum": 0},
+        "precision": {"type": "number", "minimum": 0, "maximum": 1},
+        "recall": {"type": "number", "minimum": 0, "maximum": 1},
+        "alpha": {"type": "number"},
+        "campaign_id": {"type": "string"}
       }
     }
   }

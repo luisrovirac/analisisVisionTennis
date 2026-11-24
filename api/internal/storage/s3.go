@@ -51,6 +51,14 @@ func (s *S3Store) PresignPut(ctx context.Context, key string, ttl time.Duration)
 	return u.String(), nil
 }
 
+func (s *S3Store) PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	u, err := s.public.PresignedGetObject(ctx, s.bucket, key, ttl, nil)
+	if err != nil {
+		return "", fmt.Errorf("firmar GET %s: %w", key, err)
+	}
+	return u.String(), nil
+}
+
 func (s *S3Store) Stat(ctx context.Context, key string) (domain.ObjectInfo, error) {
 	info, err := s.internal.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
 	if minio.ToErrorResponse(err).Code == "NoSuchKey" {

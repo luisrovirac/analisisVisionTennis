@@ -47,6 +47,8 @@ class MetricValue(_Frozen):
     value: float
     unit: str
     confidence: float = Field(ge=0.0, le=1.0)
+    # 1.2: índices MediaPipe (0-32) de los landmarks en los que se apoya la métrica; el visor los resalta.
+    landmarks: list[int] | None = None
 
 
 class Finding(_Frozen):
@@ -59,6 +61,8 @@ class Finding(_Frozen):
     drills: list[str]
     evidence: dict[str, float]
     validated: bool = False  # 1.1: aprobada por un validador (False = provisional)
+    # 1.3: heuristic_unvalidated | expert_reviewed | empirically_validated (sin nombres de expertos)
+    validation_status: str | None = None
 
 
 class Strength(_Frozen):
@@ -73,6 +77,7 @@ class Strength(_Frozen):
     evidence: dict[str, float]
     confidence: float = Field(ge=0.0, le=1.0)
     validated: bool = False
+    validation_status: str | None = None  # 1.3
 
 
 class Diagnosis(_Frozen):
@@ -127,6 +132,33 @@ class Classification(_Frozen):
     dataset_hash: str | None = None
 
 
+PhaseName = Literal["preparation", "acceleration", "follow_through"]
+
+
+class ReferenceUsed(_Frozen):
+    ref_id: str
+    label: str
+
+
+class PhaseSimilarity(_Frozen):
+    """Similitud (DTW sobre ángulos articulares) de una fase del golpe con la de la referencia."""
+
+    phase: PhaseName
+    status: Literal["ok", "low_confidence", "too_short"]
+    similarity: float | None = Field(default=None, ge=0.0, le=100.0)  # None si no se puntúa
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class ReferenceComparison(_Frozen):
+    """1.2: comparación INFORMATIVA con golpes de referencia. No genera errores ni puntos fuertes."""
+
+    status: Literal["ok", "partial", "low_confidence", "no_references"]
+    references_used: list[ReferenceUsed] = Field(default_factory=list)
+    overall_similarity: float | None = Field(default=None, ge=0.0, le=100.0)
+    phases: list[PhaseSimilarity] = Field(default_factory=list)
+    note: str = ""
+
+
 class Report(_Frozen):
     schema_version: str = REPORT_SCHEMA_VERSION
     stroke_type: StrokeType
@@ -142,3 +174,5 @@ class Report(_Frozen):
     drill_plan: DrillPlan | None = None
     reliability: Reliability | None = None
     knowledge_status: KnowledgeStatus | None = None
+    # Revisión 1.2 (aditiva): comparación con referentes por DTW.
+    reference_comparison: ReferenceComparison | None = None

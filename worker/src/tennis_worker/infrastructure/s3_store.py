@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from botocore.exceptions import ClientError
+
 if TYPE_CHECKING:
     from mypy_boto3_s3 import S3Client
 
@@ -17,6 +19,17 @@ class S3ObjectStore:
 
     def download(self, key: str, destination: Path) -> None:
         self._client.download_file(self._bucket, key, str(destination))
+
+    def get_json(self, key: str) -> dict[str, Any] | None:
+        """El objeto JSON, o None si no existe (p. ej. aún no hay referencias registradas)."""
+        try:
+            response = self._client.get_object(Bucket=self._bucket, Key=key)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in ("NoSuchKey", "404"):
+                return None
+            raise
+        data: dict[str, Any] = json.loads(response["Body"].read())
+        return data
 
     def put_json(self, key: str, data: dict[str, Any]) -> None:
         body = json.dumps(data, separators=(",", ":")).encode("utf-8")

@@ -29,6 +29,24 @@ func (stubKnowledge) Activate(context.Context, domain.User, string) (domain.Rele
 	return domain.Release{ID: "r1", Active: true}, nil
 }
 
+type stubValidation struct{ ValidationUseCases }
+
+func (stubValidation) Quality(_ context.Context, stroke domain.StrokeType) (service.QualityReport, error) {
+	return service.QualityReport{Stroke: stroke}, nil
+}
+
+func (stubValidation) SaveFreeReview(_ context.Context, u domain.User, caseID string, in domain.ReviewInput) (domain.CaseReview, error) {
+	return domain.CaseReview{ID: "rv1", AnalysisID: caseID, ReviewerID: u.ID, Items: in.Items}, nil
+}
+
+func (stubValidation) CreateCampaign(_ context.Context, _ domain.User, in domain.CampaignInput) (domain.Campaign, error) {
+	return domain.Campaign{ID: "c1", Stroke: in.Stroke, Status: domain.CampaignOpen, CurrentRound: 1}, nil
+}
+
+func (stubValidation) AddToCorpus(_ context.Context, _ domain.User, id, _ string) (domain.CorpusEntry, error) {
+	return domain.CorpusEntry{AnalysisID: id, Split: domain.SplitTest}, nil
+}
+
 type stubAdmin struct{ AdminUseCases }
 
 func (stubAdmin) ListUsers(context.Context, string) ([]domain.User, error) { return nil, nil }
@@ -65,6 +83,11 @@ func TestRoleMatrix(t *testing.T) {
 		{http.MethodPost, "/v1/validator/proposals/p1/approve", `{"note":""}`, []domain.Role{domain.RoleValidator}},
 		{http.MethodPost, "/v1/kb/releases/r1/activate", "", []domain.Role{domain.RoleValidator, domain.RoleAdmin}},
 		{http.MethodGet, "/v1/admin/users", "", []domain.Role{domain.RoleAdmin}},
+		{http.MethodGet, "/v1/kb/quality?stroke=forehand", "", []domain.Role{domain.RoleExpert, domain.RoleValidator, domain.RoleAdmin}},
+		{http.MethodPut, "/v1/kb/cases/a1/review", `{"items":[{"rule_id":"FH-X-001","rating":3}]}`,
+			[]domain.Role{domain.RoleExpert, domain.RoleValidator}},
+		{http.MethodPost, "/v1/kb/campaigns", `{"stroke":"forehand"}`, []domain.Role{domain.RoleValidator, domain.RoleAdmin}},
+		{http.MethodPost, "/v1/kb/corpus", `{"analysis_id":"a1"}`, []domain.Role{domain.RoleValidator, domain.RoleAdmin}},
 		{http.MethodPost, "/v1/admin/invitations", `{"email":"x@x.test","roles":["expert"]}`, []domain.Role{domain.RoleAdmin}},
 	}
 	all := [][]domain.Role{nil, {domain.RoleExpert}, {domain.RoleValidator}, {domain.RoleAdmin},

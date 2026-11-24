@@ -161,14 +161,19 @@ func wire(inf infra, verifier httpapi.TokenVerifier, cfg config.Config, logger *
 		{Name: "storage", Ping: inf.store.Ping},
 	}
 	users := repository.NewPostgresUsers(inf.pool)
-	knowledge := service.NewKnowledge(repository.NewPostgresKnowledge(inf.pool),
-		service.KnowledgeConfig{MinMetricConfidence: cfg.KBMinMetricConfidence}, time.Now)
+	knowledgeRepo := repository.NewPostgresKnowledge(inf.pool)
+	validation := service.NewValidation(repository.NewPostgresValidation(inf.pool), repo, knowledgeRepo, inf.store,
+		cfg.UploadURLTTL, service.ValidationConfig{MinMetricConfidence: cfg.KBMinMetricConfidence}, time.Now)
+	knowledge := service.NewKnowledge(knowledgeRepo,
+		service.KnowledgeConfig{MinMetricConfidence: cfg.KBMinMetricConfidence}, time.Now).WithEvidence(validation)
 	return httpapi.NewRouter(httpapi.RouterDeps{
 		Analyses:    svc,
 		Preferences: service.NewPreferences(users),
 		Profiles:    service.NewProfiles(users),
 		Admin:       service.NewAdmin(users, time.Now),
 		Knowledge:   knowledge,
+		Cases:       service.NewCases(repo, inf.store, cfg.UploadURLTTL, time.Now),
+		Validation:  validation,
 		Verifier:    verifier,
 		Users:       service.NewIdentity(users, cfg.BootstrapAdminEmails),
 		AuthConfig:  clientAuthConfig(cfg.Auth),

@@ -25,6 +25,8 @@ type RouterDeps struct {
 	Profiles    ProfileUseCases
 	Admin       AdminUseCases
 	Knowledge   KnowledgeUseCases
+	Cases       CaseUseCases
+	Validation  ValidationUseCases
 	Verifier    TokenVerifier
 	Users       UserResolver
 	AuthConfig  ClientAuthConfig
@@ -45,6 +47,7 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	v1.GET("/analyses", h.list)
 	v1.POST("/analyses", h.create)
 	v1.GET("/analyses/:id", h.get)
+	v1.GET("/analyses/:id/media", h.media)
 	v1.DELETE("/analyses/:id", h.remove)
 	v1.PATCH("/analyses/:id", h.update)
 	v1.POST("/analyses/:id/submit", h.submit)
@@ -58,6 +61,8 @@ func NewRouter(d RouterDeps) *gin.Engine {
 	v1.PUT("/me/profile", me.putProfile)
 
 	registerKnowledge(v1, &knowledgeHandler{svc: d.Knowledge, logger: d.Logger}, d.Logger)
+	registerCases(v1, &casesHandler{svc: d.Cases, logger: d.Logger}, d.Logger)
+	registerValidation(v1, &validationHandler{svc: d.Validation, logger: d.Logger}, d.Logger)
 	registerAdmin(v1, &adminHandler{svc: d.Admin, logger: d.Logger}, d.Logger)
 
 	r.GET("/healthz", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
@@ -92,6 +97,39 @@ func registerKnowledge(v1 *gin.RouterGroup, h *knowledgeHandler, logger *slog.Lo
 	validator.POST("/proposals/:id/approve", h.approve)
 	validator.POST("/proposals/:id/reject", h.reject)
 	validator.POST("/proposals/:id/request-changes", h.requestChanges)
+}
+
+// registerCases: el equipo profesional ve (solo lectura) los análisis cuyo dueño lo permitió.
+func registerCases(v1 *gin.RouterGroup, h *casesHandler, logger *slog.Logger) {
+	cases := v1.Group("/kb/cases", requireRole(logger, domain.RoleExpert, domain.RoleValidator, domain.RoleAdmin))
+	cases.GET("", h.list)
+	cases.GET("/:id", h.get)
+}
+
+// registerValidation: validación formal de las reglas. Todo el equipo profesional ve corpus, campañas,
+// calibración y KPIs; expertos y validadores revisan casos y califican en campañas (si son evaluadores);
+// validadores y admins coordinan el corpus y las campañas.
+func registerValidation(v1 *gin.RouterGroup, h *validationHandler, logger *slog.Logger) {
+	team := v1.Group("/kb", requireRole(logger, domain.RoleExpert, domain.RoleValidator, domain.RoleAdmin))
+	team.GET("/corpus", h.corpus)
+	team.GET("/campaigns", h.campaigns)
+	team.GET("/campaigns/:id", h.campaign)
+	team.GET("/cases/:id/reviews", h.caseReviews)
+	team.POST("/calibrate", h.calibrate)
+	team.GET("/quality", h.quality)
+
+	reviewers := v1.Group("/kb", requireRole(logger, domain.RoleExpert, domain.RoleValidator))
+	reviewers.PUT("/cases/:id/review", h.saveFreeReview)
+	reviewers.GET("/campaigns/:id/cases/:caseId", h.campaignCase)
+	reviewers.PUT("/campaigns/:id/cases/:caseId/review", h.saveCampaignReview)
+
+	coordinators := v1.Group("/kb", requireRole(logger, domain.RoleValidator, domain.RoleAdmin))
+	coordinators.POST("/corpus", h.addToCorpus)
+	coordinators.DELETE("/corpus/:id", h.removeFromCorpus)
+	coordinators.GET("/professionals", h.professionals)
+	coordinators.POST("/campaigns", h.createCampaign)
+	coordinators.POST("/campaigns/:id/advance", h.advance)
+	coordinators.POST("/campaigns/:id/close", h.close)
 }
 
 func registerAdmin(v1 *gin.RouterGroup, h *adminHandler, logger *slog.Logger) {

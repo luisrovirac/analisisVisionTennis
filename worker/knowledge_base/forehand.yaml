@@ -3,8 +3,13 @@
 #   importa a Postgres la primera vez (versión publicada inicial). A partir de ahí los cambios se hacen
 #   en el portal (el experto propone, el validador aprueba) y no editando este archivo.
 # Guía: Docs/BASE_CONOCIMIENTO.md · Esquema: contracts/knowledge_base.schema.json
+# 0.3.0: +12 reglas con las métricas nuevas (base, cabeza, swing de abajo arriba, piernas, brazo libre,
+#        antelación de la preparación). Si la base activa en Postgres sigue siendo la semilla sin tocar
+#        desde el portal, el worker la actualiza solo a esta versión al arrancar.
+# 0.3.1: head_stability pasa a medirse en la imagen (largos de torso); umbrales 0.25 / 0.1.
+# 0.3.2: campo views: reglas que solo son fiables con vista de perfil (side) o frontal/trasera.
 stroke: forehand
-version: 0.2.0
+version: 0.3.2
 validated_by: null
 
 rules:
@@ -50,7 +55,8 @@ rules:
     category: fundamental
     impact: 5
     difficulty: 2
-    caused_by: [FH-PREP-001]  # sin giro, la preparación llega tarde y el impacto se atrasa
+    views: [side]
+    caused_by: [FH-PREP-001, FH-PREP-002]  # sin giro o con giro tardío, el impacto se atrasa
     when:
       all:
         - {metric: contact_point_ahead, op: lt, value: 0.15}
@@ -211,6 +217,7 @@ rules:
     polarity: strength
     impact: 5
     difficulty: 2
+    views: [side]
     when:
       all:
         - {metric: contact_point_ahead, op: gte, value: 0.2}
@@ -265,3 +272,218 @@ rules:
       Mayor radio de swing y mejor control de la bola sin forzar el codo.
     how_to_maintain: >
       Mantén la distancia a la bola; deja que el brazo acompañe el giro del cuerpo.
+
+  # =====================================================================================================
+  # 0.3.0 — Reglas con las métricas nuevas. Umbrales PROVISIONALES estimados para pose 2D desde video:
+  # la literatura (captura 3D en laboratorio) indica QUÉ medir y en qué dirección está el error, pero el
+  # valor exacto lo debe calibrar un experto desde el portal con videos reales.
+  # =====================================================================================================
+
+  # ---------- Errores ----------
+  - id: FH-PREP-002
+    title: Preparación tardía
+    category: fundamental
+    impact: 5
+    difficulty: 2
+    when:
+      all:
+        - {metric: unit_turn_lead_time, op: lt, value: 0.25}
+    explanation: >
+      Completas el giro de hombros justo antes de golpear. Sin tiempo para preparar, el swing se
+      acelera de golpe y el impacto suele llegar tarde y atrás.
+    correction: >
+      Empieza el giro de hombros en cuanto identificas que la bola viene a tu derecha, antes de que
+      bote. Llega preparado y espera la bola, no la persigas con la raqueta.
+    drills:
+      - "Peloteo diciendo en voz alta '¡ya!' al girar, antes del bote de la bola."
+      - "Lanzamientos del entrenador: prepara y congela la posición hasta que la bola bote."
+    references:
+      - "Elliott B, Reid M, Crespo M. Biomechanics of Advanced Tennis. ITF, 2003."
+
+  - id: FH-BASE-001
+    title: Base demasiado estrecha
+    category: fundamental
+    impact: 4
+    difficulty: 1
+    views: [front, back]
+    when:
+      all:
+        - {metric: stance_width_ratio, op: lt, value: 0.9}
+    explanation: >
+      En el impacto tus pies están más juntos que la anchura de tus hombros. Con una base estrecha
+      pierdes equilibrio y no puedes empujar desde el suelo ni girar la cadera con firmeza.
+    correction: >
+      Abre los pies algo más que la anchura de los hombros al preparar, con el peso repartido en la
+      parte delantera de los pies.
+    drills:
+      - "Dos líneas en el suelo separadas un poco más que tus hombros: golpea con un pie en cada línea."
+      - "Sombra con pausa en la preparación comprobando la anchura de la base."
+
+  - id: FH-HEAD-001
+    title: La cabeza se mueve en el impacto
+    category: fundamental
+    impact: 4
+    difficulty: 2
+    when:
+      all:
+        - {metric: head_stability, op: gt, value: 0.25}
+    explanation: >
+      La cabeza se desplaza justo cuando golpeas (normalmente por levantar la vista para mirar adónde
+      va la bola). Eso mueve todo el eje del cuerpo y empeora la precisión del impacto.
+    correction: >
+      Mantén la cabeza quieta y la mirada en el punto de impacto hasta que la bola haya salido de la
+      raqueta; mira el resultado después.
+    drills:
+      - "Golpea y mantén la vista en el punto de impacto contando 'uno' antes de levantar la cabeza."
+      - "Peloteo con el compañero diciendo el color/número escrito en la bola en el impacto."
+
+  - id: FH-SWING-001
+    title: Swing plano (la raqueta no baja por debajo de la bola)
+    category: fundamental
+    impact: 3
+    difficulty: 3
+    views: [side]
+    when:
+      all:
+        - {metric: racket_drop_below_contact, op: lt, value: 0.05}
+    explanation: >
+      La raqueta no baja por debajo de la altura del impacto antes de ir hacia la bola, así que el swing
+      es horizontal o de arriba abajo. La bola sale con poco efecto liftado y cuesta pasarla alta y
+      segura sobre la red.
+    correction: >
+      Tras la preparación deja caer la cabeza de la raqueta por debajo de la bola y golpea de abajo
+      hacia arriba, terminando alto. (Si buscas un golpe plano a propósito, ignora este aviso).
+    drills:
+      - "Golpes desde rodillas o sentado en un cajón: obliga a subir la raqueta para pasar la red."
+      - "Pasar la bola por encima de una cuerda colocada a 1 m sobre la red."
+
+  - id: FH-LEG-001
+    title: Flexionas pero no empujas con las piernas
+    category: sincronizacion
+    impact: 4
+    difficulty: 3
+    when:
+      all:
+        - {metric: knee_angle_min, op: lt, value: 150}
+        - {metric: leg_drive, op: lt, value: 8}
+    explanation: >
+      Flexionas las rodillas al preparar, pero no las extiendes hacia el impacto. La energía que
+      cargas en las piernas no llega al golpe.
+    correction: >
+      Empieza el swing empujando el suelo: extiende las rodillas mientras giras la cadera, como si
+      quisieras subir ligeramente hacia la bola.
+    drills:
+      - "Sombra 'baja-empuja-gira': flexiona, empuja el suelo y deja que la cadera arrastre el brazo."
+      - "Saltos verticales cortos desde la posición de preparación (3 x 8) antes de golpear."
+
+  - id: FH-ARM-002
+    title: Brazo libre inactivo en la preparación
+    category: sincronizacion
+    impact: 3
+    difficulty: 1
+    when:
+      all:
+        - {metric: off_arm_extension, op: lt, value: 0.15}
+    explanation: >
+      El brazo no dominante se queda pegado al cuerpo durante la preparación. Ese brazo ayuda a girar
+      los hombros, a medir la distancia a la bola y a equilibrar el giro del tronco.
+    correction: >
+      Al preparar, estira el brazo libre por delante del cuerpo, señalando la bola, y recógelo hacia el
+      pecho cuando empieces el swing.
+    drills:
+      - "Sujeta la garganta de la raqueta con la mano libre al preparar y suéltala al girar."
+      - "Sombra señalando la bola con la mano libre hasta el último momento."
+
+  # ---------- Puntos fuertes ----------
+  - id: FH-STR-008
+    title: Preparación temprana
+    category: fundamental
+    polarity: strength
+    impact: 5
+    difficulty: 2
+    when:
+      all:
+        - {metric: unit_turn_lead_time, op: gte, value: 0.5}
+    explanation: Completas el giro de hombros con tiempo antes del impacto.
+    why_it_matters: >
+      Llegar preparado te permite esperar la bola, ajustar la distancia y golpear por delante.
+    how_to_maintain: >
+      Mantén el hábito de girar en cuanto lees la dirección de la bola, también con bolas rápidas.
+
+  - id: FH-STR-009
+    title: Base amplia y estable
+    category: fundamental
+    polarity: strength
+    impact: 3
+    difficulty: 1
+    views: [front, back]
+    when:
+      all:
+        - {metric: stance_width_ratio, op: between, value: [1.2, 2.2]}
+    explanation: Tus pies están bien separados en el impacto.
+    why_it_matters: >
+      Una base amplia da equilibrio y permite empujar desde el suelo y girar la cadera con firmeza.
+    how_to_maintain: >
+      Conserva esa anchura también cuando llegas a la bola corriendo.
+
+  - id: FH-STR-010
+    title: Cabeza quieta en el impacto
+    category: fundamental
+    polarity: strength
+    impact: 4
+    difficulty: 2
+    when:
+      all:
+        - {metric: head_stability, op: lte, value: 0.1}
+    explanation: Mantienes la cabeza estable mientras golpeas.
+    why_it_matters: >
+      Un eje estable hace el impacto más preciso y repetible.
+    how_to_maintain: >
+      Sigue mirando el punto de impacto hasta que la bola sale de la raqueta.
+
+  - id: FH-STR-011
+    title: Swing de abajo hacia arriba
+    category: fundamental
+    polarity: strength
+    impact: 3
+    difficulty: 3
+    views: [side]
+    when:
+      all:
+        - {metric: racket_drop_below_contact, op: gte, value: 0.15}
+    explanation: La raqueta baja por debajo de la bola y sube hacia el impacto.
+    why_it_matters: >
+      Ese recorrido genera efecto liftado: la bola pasa alta sobre la red y cae dentro de la pista.
+    how_to_maintain: >
+      Mantén la caída de la raqueta tras la preparación y termina alto.
+
+  - id: FH-STR-012
+    title: Empuje de piernas activo
+    category: sincronizacion
+    polarity: strength
+    impact: 4
+    difficulty: 3
+    suppressed_by: [FH-POST-001]
+    when:
+      all:
+        - {metric: leg_drive, op: gte, value: 20}
+    explanation: Extiendes las rodillas hacia el impacto.
+    why_it_matters: >
+      El golpe empieza en el suelo: las piernas inician la cadena cinética y aportan potencia.
+    how_to_maintain: >
+      Sigue empujando el suelo al iniciar el swing, sin saltar antes de tiempo.
+
+  - id: FH-STR-013
+    title: Brazo libre activo
+    category: sincronizacion
+    polarity: strength
+    impact: 2
+    difficulty: 1
+    when:
+      all:
+        - {metric: off_arm_extension, op: gte, value: 0.3}
+    explanation: Estiras el brazo libre hacia la bola durante la preparación.
+    why_it_matters: >
+      Ayuda a girar los hombros, a medir la distancia a la bola y a equilibrar el cuerpo.
+    how_to_maintain: >
+      Recógelo hacia el pecho al iniciar el swing para acelerar el giro del tronco.

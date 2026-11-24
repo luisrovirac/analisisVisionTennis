@@ -8,11 +8,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from tennis_worker.contracts import Category, StrokeType
+from tennis_worker.contracts import CameraView, Category, StrokeType
 
 Operator = Literal["lt", "lte", "gt", "gte", "eq", "between"]
 # error = algo a corregir; strength = punto fuerte (tiene su propio umbral, no es "ausencia de error").
 Polarity = Literal["error", "strength"]
+# KB 2.1: qué tan validada está la regla. Lo fija la API al aprobar; el worker solo lo transporta.
+ValidationStatus = Literal["heuristic_unvalidated", "expert_reviewed", "empirically_validated"]
+EvidenceLevel = Literal["provisional", "literature", "expert_validated"]
 
 
 class _Strict(BaseModel):
@@ -54,6 +57,18 @@ class ConditionGroup(_Strict):
         return self.all_of is not None
 
 
+class RuleValidation(_Strict):
+    """Traza de la validación (ids de usuario, nunca nombres; no llega al reporte)."""
+
+    validated_by: tuple[str, ...] = ()
+    validated_at: str | None = None
+    n: int | None = Field(default=None, ge=0)
+    precision: float | None = Field(default=None, ge=0, le=1)
+    recall: float | None = Field(default=None, ge=0, le=1)
+    alpha: float | None = None
+    campaign_id: str | None = None
+
+
 class Rule(_Strict):
     id: str
     title: str
@@ -70,7 +85,23 @@ class Rule(_Strict):
     caused_by: tuple[str, ...] = ()  # errores que explican este (grafo causal → causa raíz)
     suppressed_by: tuple[str, ...] = ()  # fortaleza que no se elogia si alguno de estos errores aparece
     references: tuple[str, ...] = ()  # bibliografía (p. ej. PMID) o fuentes
-    validated: bool = False  # lo fija la API cuando un validador aprueba la regla; nunca el experto
+    # Vistas de cámara desde las que la regla es fiable (vacío = todas). Fuera de ellas no se evalúa.
+    views: tuple[CameraView, ...] = ()
+    validation_status: ValidationStatus | None = None  # None = deducir de `validated` (KB 2.0)
+    validation: RuleValidation | None = None
+    evidence: str = Field(default="", max_length=2000)
+    evidence_level: EvidenceLevel | None = None
+    validated: bool = False  # legado 2.0; lo fija la API cuando un validador aprueba la regla
+
+    @property
+    def status(self) -> ValidationStatus:
+        if self.validation_status is not None:
+            return self.validation_status
+        return "expert_reviewed" if self.validated else "heuristic_unvalidated"
+
+    @property
+    def is_validated(self) -> bool:
+        return self.status != "heuristic_unvalidated"
 
     @property
     def metric_ids(self) -> set[str]:
@@ -90,7 +121,12 @@ class Rule(_Strict):
             raise ValueError(f"{self.id}: 'caused_by' solo aplica a errores")
         if not self.is_strength and self.suppressed_by:
             raise ValueError(f"{self.id}: 'suppressed_by' solo aplica a fortalezas")
+        if len(set(self.views)) != len(self.views):
+            raise ValueError(f"{self.id}: 'views' tiene vistas repetidas")
         return self
+
+    def applies_to(self, view: CameraView | None) -> bool:
+        return view is None or not self.views or view in self.views
 
 
 class KnowledgeBase(_Strict):

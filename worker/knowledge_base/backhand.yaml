@@ -1,0 +1,345 @@
+# Base de conocimiento del REVÉS (semilla). Vale para revés a una y a dos manos: las reglas específicas
+# de cada tipo usan wrist_separation_at_impact (< 0,2 m ≈ dos manos; > 0,2 m ≈ una mano).
+# ⚠ Umbrales PROVISIONALES estimados para pose 2D desde video. El worker importa este archivo a Postgres
+#   la primera vez; a partir de ahí los cambios se hacen en el portal (experto propone, validador aprueba).
+# Guía: Docs/BASE_CONOCIMIENTO.md · Esquema: contracts/knowledge_base.schema.json
+stroke: backhand
+version: 0.1.2
+validated_by: null
+
+rules:
+  # ---------- Errores fundamentales ----------
+  - id: BH-PREP-001
+    title: Preparación sin giro de hombros
+    category: fundamental
+    impact: 5
+    difficulty: 1
+    when:
+      all:
+        - {metric: shoulder_rotation_range, op: lt, value: 45}
+    explanation: >
+      Los hombros apenas giran entre la preparación y el impacto. En el revés el giro es todavía más
+      importante que en el forehand: sin él el golpe depende solo del brazo.
+    correction: >
+      Al ver venir la bola a tu revés, gira los hombros hasta mostrar la espalda a la red, llevando la
+      raqueta atrás con las dos manos (también en el revés a una mano, la mano libre guía el giro).
+    drills:
+      - "Sombra frente a un espejo: gira hasta ver el hombro de golpeo apuntando a la red y pausa 1 s."
+      - "Preparación con la mano libre sujetando la garganta de la raqueta hasta el último momento."
+    references:
+      - "Elliott B, Reid M, Crespo M. Biomechanics of Advanced Tennis. ITF, 2003."
+
+  - id: BH-PREP-002
+    title: Preparación tardía
+    category: fundamental
+    impact: 5
+    difficulty: 2
+    when:
+      all:
+        - {metric: unit_turn_lead_time, op: lt, value: 0.25}
+    explanation: >
+      Completas el giro justo antes de golpear. En el revés la preparación tardía se nota más porque el
+      brazo de golpeo está por delante del cuerpo y necesita más tiempo para armar.
+    correction: >
+      Gira en cuanto identificas que la bola va a tu revés, antes del bote. Llega preparado y espera.
+    drills:
+      - "Peloteo diciendo '¡ya!' al girar, antes del bote de la bola."
+      - "Lanzamientos del entrenador: prepara y congela la posición hasta que la bola bote."
+
+  - id: BH-POST-001
+    title: Piernas rígidas (sin flexión de rodillas)
+    category: fundamental
+    impact: 4
+    difficulty: 1
+    when:
+      all:
+        - {metric: knee_angle_min, op: gt, value: 160}
+    explanation: >
+      Las rodillas casi no se flexionan al preparar, así que las piernas no aportan impulso ni
+      estabilidad, y te cuesta llegar a las bolas bajas.
+    correction: >
+      Flexiona las rodillas al preparar y empuja desde el suelo hacia arriba y hacia delante al golpear.
+    drills:
+      - "Series de 10 reveses con la consigna 'bajo al preparar, subo al golpear'."
+
+  - id: BH-BASE-001
+    title: Base demasiado estrecha
+    category: fundamental
+    impact: 4
+    difficulty: 1
+    views: [front, back]
+    when:
+      all:
+        - {metric: stance_width_ratio, op: lt, value: 0.9}
+    explanation: >
+      En el impacto tus pies están más juntos que la anchura de tus hombros: pierdes equilibrio y
+      apoyo para girar.
+    correction: >
+      Separa los pies algo más que la anchura de hombros, con el pie delantero cruzado hacia la bola.
+    drills:
+      - "Dos líneas en el suelo: golpea con un pie en cada línea."
+
+  - id: BH-CONT-001
+    title: Punto de impacto atrasado
+    category: fundamental
+    impact: 5
+    difficulty: 2
+    views: [side]
+    caused_by: [BH-PREP-001, BH-PREP-002]
+    when:
+      all:
+        - {metric: contact_point_ahead, op: lt, value: 0.15}
+    explanation: >
+      Golpeas la bola a la altura del cuerpo o por detrás. En el revés esto bloquea el brazo y quita
+      control y potencia.
+    correction: >
+      Busca el impacto por delante de la cadera delantera (más adelantado aún en el revés a una mano).
+    drills:
+      - "Cono a un paso por delante del pie adelantado: golpea a su altura."
+
+  - id: BH-CONT-002
+    title: Revés a una mano con impacto poco adelantado
+    category: fundamental
+    impact: 4
+    difficulty: 2
+    views: [side]
+    caused_by: [BH-PREP-001, BH-PREP-002]
+    when:
+      all:
+        - {metric: wrist_separation_at_impact, op: gt, value: 0.2}
+        - {metric: contact_point_ahead, op: between, value: [0.15, 0.25]}
+    explanation: >
+      Tu revés es a una mano y el impacto está algo adelantado, pero no lo suficiente: en el revés a una
+      mano el hombro de golpeo va por delante y el punto ideal está más lejos del cuerpo que en el de
+      dos manos.
+    correction: >
+      Adelanta todavía más el impacto: la bola debe estar claramente por delante del pie adelantado.
+    drills:
+      - "Golpes desde posición cerrada, con un cono medio paso por delante del pie adelantado."
+
+  - id: BH-ARM-001
+    title: Revés a una mano con el codo flexionado
+    category: fundamental
+    impact: 5
+    difficulty: 3
+    when:
+      all:
+        - {metric: wrist_separation_at_impact, op: gt, value: 0.2}
+        - {metric: elbow_angle_at_impact, op: lt, value: 150}
+    explanation: >
+      En el revés a una mano el codo llega flexionado al impacto y el golpe se hace "empujando" con el
+      codo. Es una causa clásica de sobrecarga del codo (epicondilitis o "codo de tenista").
+    correction: >
+      Llega al impacto con el brazo de golpeo extendido y firme, golpeando con el hombro y el giro del
+      tronco, no con el codo. Si te cuesta, prueba el revés a dos manos.
+    drills:
+      - "Sombra lenta comprobando el brazo estirado en el punto de impacto."
+      - "Golpes suaves desde el pie con bolas lentas, pausando en el impacto."
+    references:
+      - "Elliott B, Reid M, Crespo M. Biomechanics of Advanced Tennis. ITF, 2003."
+
+  - id: BH-FIN-001
+    title: Terminación corta
+    category: fundamental
+    impact: 3
+    difficulty: 1
+    caused_by: [BH-CONT-001]
+    when:
+      all:
+        - {metric: follow_through_height, op: lt, value: 0.0}
+    explanation: >
+      La raqueta no termina por encima del hombro: el swing se frena y la bola sale sin profundidad.
+    correction: >
+      Deja que la raqueta siga su recorrido hacia arriba y hacia delante hasta terminar alta.
+    drills:
+      - "Sombra exagerando la terminación alta y manteniendo la posición final 2 s."
+
+  - id: BH-HEAD-001
+    title: La cabeza se mueve en el impacto
+    category: fundamental
+    impact: 4
+    difficulty: 2
+    when:
+      all:
+        - {metric: head_stability, op: gt, value: 0.25}
+    explanation: >
+      La cabeza se desplaza justo al golpear, normalmente por mirar antes de tiempo adónde va la bola.
+    correction: >
+      Mantén la cabeza quieta y la mirada en el punto de impacto hasta que la bola salga de la raqueta.
+    drills:
+      - "Golpea y mantén la vista en el punto de impacto contando 'uno' antes de levantar la cabeza."
+
+  - id: BH-SWING-001
+    title: Swing plano (la raqueta no baja por debajo de la bola)
+    category: fundamental
+    impact: 3
+    difficulty: 3
+    views: [side]
+    when:
+      all:
+        - {metric: racket_drop_below_contact, op: lt, value: 0.05}
+    explanation: >
+      La raqueta no baja por debajo de la bola antes del impacto: el revés sale sin efecto liftado y
+      con poco margen sobre la red. (Si buscas un golpe plano o cortado a propósito, ignora este aviso).
+    correction: >
+      Tras la preparación deja caer la raqueta por debajo de la bola y golpea de abajo hacia arriba.
+    drills:
+      - "Pasar la bola por encima de una cuerda colocada a 1 m sobre la red."
+
+  # ---------- Errores de sincronización ----------
+  - id: BH-SYNC-001
+    title: Cadera y hombros giran en bloque
+    category: sincronizacion
+    impact: 4
+    difficulty: 4
+    when:
+      all:
+        - {metric: hip_shoulder_separation_max, op: lt, value: 15}
+    explanation: >
+      Cadera y hombros giran a la vez, sin torsión entre ellos, y se pierde la energía elástica del
+      tronco.
+    correction: >
+      Inicia el swing con la cadera mientras los hombros todavía están girados.
+    drills:
+      - "Sombra en dos tiempos: 1) gira la cadera, 2) suelta hombros y brazos."
+
+  - id: BH-SYNC-002
+    title: Cadena cinética desordenada
+    category: sincronizacion
+    impact: 5
+    difficulty: 5
+    when:
+      all:
+        - {metric: kinetic_chain_sequence, op: eq, value: 0}
+    explanation: >
+      Los segmentos no alcanzan su máxima velocidad en el orden cadera → hombros → brazo.
+    correction: >
+      Piensa en un látigo: piernas y cadera primero, luego tronco y por último brazos y raqueta.
+    drills:
+      - "Reveses a cámara lenta contando '1-cadera, 2-hombros, 3-brazos'."
+
+  - id: BH-LEG-001
+    title: Flexionas pero no empujas con las piernas
+    category: sincronizacion
+    impact: 4
+    difficulty: 3
+    when:
+      all:
+        - {metric: knee_angle_min, op: lt, value: 150}
+        - {metric: leg_drive, op: lt, value: 8}
+    explanation: >
+      Flexionas las rodillas pero no las extiendes hacia el impacto: la energía de las piernas no llega
+      al golpe.
+    correction: >
+      Empieza el swing empujando el suelo mientras giras la cadera.
+    drills:
+      - "Sombra 'baja-empuja-gira' con pausa en la preparación."
+
+  # ---------- Puntos fuertes ----------
+  - id: BH-STR-001
+    title: Buena rotación de hombros
+    category: fundamental
+    polarity: strength
+    impact: 5
+    difficulty: 1
+    when:
+      all:
+        - {metric: shoulder_rotation_range, op: gte, value: 70}
+    explanation: Giras los hombros ampliamente en la preparación.
+    why_it_matters: >
+      El giro del tronco genera la potencia del revés y descarga el brazo.
+    how_to_maintain: >
+      Sigue preparando con las dos manos y mostrando la espalda a la red.
+
+  - id: BH-STR-002
+    title: Preparación temprana
+    category: fundamental
+    polarity: strength
+    impact: 5
+    difficulty: 2
+    when:
+      all:
+        - {metric: unit_turn_lead_time, op: gte, value: 0.5}
+    explanation: Completas el giro con tiempo antes del impacto.
+    why_it_matters: >
+      Te deja esperar la bola y golpearla por delante.
+    how_to_maintain: >
+      Gira en cuanto lees que la bola va a tu revés.
+
+  - id: BH-STR-003
+    title: Punto de impacto adelantado
+    category: fundamental
+    polarity: strength
+    impact: 5
+    difficulty: 2
+    views: [side]
+    when:
+      all:
+        - {metric: contact_point_ahead, op: gte, value: 0.25}
+    explanation: Golpeas la bola claramente por delante del cuerpo.
+    why_it_matters: >
+      Control de la dirección, impacto limpio y menos carga en el brazo.
+    how_to_maintain: >
+      Prepara pronto para mantener ese punto también con bolas rápidas.
+
+  - id: BH-STR-004
+    title: Revés a una mano con el brazo extendido
+    category: fundamental
+    polarity: strength
+    impact: 4
+    difficulty: 3
+    suppressed_by: [BH-CONT-001]
+    when:
+      all:
+        - {metric: wrist_separation_at_impact, op: gt, value: 0.2}
+        - {metric: elbow_angle_at_impact, op: gte, value: 160}
+    explanation: Llegas al impacto con el brazo de golpeo extendido y firme.
+    why_it_matters: >
+      Es la técnica que protege el codo y da radio y potencia al revés a una mano.
+    how_to_maintain: >
+      Sigue golpeando con el hombro y el giro del tronco, no con el codo.
+
+  - id: BH-STR-005
+    title: Terminación completa y alta
+    category: fundamental
+    polarity: strength
+    impact: 3
+    difficulty: 1
+    when:
+      all:
+        - {metric: follow_through_height, op: gte, value: 0.1}
+    explanation: La raqueta termina claramente por encima del hombro.
+    why_it_matters: >
+      Profundidad, efecto y un frenado progresivo del brazo.
+    how_to_maintain: >
+      No frenes el swing al impactar.
+
+  - id: BH-STR-006
+    title: Cadena cinética bien secuenciada
+    category: sincronizacion
+    polarity: strength
+    impact: 5
+    difficulty: 5
+    when:
+      all:
+        - {metric: kinetic_chain_sequence, op: eq, value: 1}
+    explanation: Cadera, hombros y brazo alcanzan su máxima velocidad en el orden eficiente.
+    why_it_matters: >
+      Más potencia con menos esfuerzo del brazo.
+    how_to_maintain: >
+      Mantén ese patrón también al golpear con prisa.
+
+  - id: BH-STR-007
+    title: Cabeza quieta en el impacto
+    category: fundamental
+    polarity: strength
+    impact: 4
+    difficulty: 2
+    when:
+      all:
+        - {metric: head_stability, op: lte, value: 0.1}
+    explanation: Mantienes la cabeza estable mientras golpeas.
+    why_it_matters: >
+      Un eje estable hace el impacto más preciso y repetible.
+    how_to_maintain: >
+      Sigue mirando el punto de impacto hasta que la bola sale de la raqueta.

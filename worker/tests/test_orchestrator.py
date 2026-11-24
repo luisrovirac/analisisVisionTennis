@@ -6,9 +6,10 @@ from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
 
+import numpy as np
 import pytest
 
-from tennis_worker.contracts import JobMessage
+from tennis_worker.contracts import JobMessage, StrokeType
 from tennis_worker.errors import StrokeNotRecognizedError, UnsupportedStrokeError
 from tennis_worker.pipeline.biomechanics.registry import default_registry
 from tennis_worker.pipeline.classification import (
@@ -25,6 +26,7 @@ from tennis_worker.pipeline.knowledge.repository import YamlKnowledgeBaseReposit
 from tennis_worker.pipeline.orchestrator import AnalysisPipeline, PipelineStages
 from tennis_worker.pipeline.prioritization import CategoryImpactPrioritizer
 from tennis_worker.pipeline.quality import QualityAssessor
+from tennis_worker.pipeline.reference import ReferenceComparator, ReferenceStroke
 from tennis_worker.pipeline.segmentation import WristSpeedSegmenter
 from tennis_worker.pipeline.types import PoseSequence
 from tennis_worker.pipeline.video import Frame, VideoStream
@@ -36,7 +38,7 @@ class FakeStream:
     fps = 60.0
 
     def frames(self) -> Iterator[Frame]:
-        return iter(())
+        return iter([np.zeros((360, 640, 3), dtype=np.uint8)])
 
 
 class FakeReader:
@@ -50,6 +52,8 @@ class FakeEstimator:
         self._pose = pose
 
     def estimate(self, stream: VideoStream) -> PoseSequence:
+        for _ in stream.frames():  # consume el video como un estimador real
+            pass
         return self._pose
 
 
@@ -94,9 +98,20 @@ def test_report_validates_against_json_schema(job: JobMessage) -> None:
     jsonschema.validate(report.model_dump(mode="json"), schema)
 
 
-def test_unsupported_stroke_fails_with_actionable_error(job: JobMessage) -> None:
+def test_unsupported_stroke_fails_with_actionable_error(job: JobMessage, tmp_path: Path) -> None:
+    no_knowledge = AnalysisPipeline(replace(stages_for(GOOD_SWING), knowledge=YamlKnowledgeBaseRepository(tmp_path)))
     with pytest.raises(UnsupportedStrokeError):
-        pipeline_for(GOOD_SWING).run(Path("video"), job.model_copy(update={"stroke_type": "serve"}))
+        no_knowledge.run(Path("video"), job.model_copy(update={"stroke_type": "serve"}))
+
+
+@pytest.mark.parametrize("stroke", ["backhand", "serve", "volley"])
+def test_new_strokes_produce_a_valid_report(job: JobMessage, stroke: StrokeType) -> None:
+    jsonschema = pytest.importorskip("jsonschema")
+    report = pipeline_for(BAD_SWING).run(Path("video"), job.model_copy(update={"stroke_type": stroke})).report
+    assert report.stroke_type == stroke and report.knowledge_base_version.startswith(f"{stroke}@")
+    assert {m.id for m in report.metrics} == default_registry().metric_ids(stroke)
+    schema = json.loads((CONTRACTS_DIR / "report.schema.json").read_text(encoding="utf-8"))
+    jsonschema.validate(report.model_dump(mode="json"), schema)
 
 
 class Disagreeing:
@@ -163,3 +178,35 @@ def test_bad_swing_diagnosis_names_a_root_cause_and_plan(job: JobMessage) -> Non
     assert {"FH-CONT-001", "FH-FIN-001"} <= set(diagnosis.contributing_factors)  # PREP → CONT → FIN
     assert report.drill_plan is not None and report.drill_plan.items[0].focus_rule_id == "FH-PREP-001"
     assert not any(s.rule_id in {"FH-STR-003", "FH-STR-007"} for s in report.strengths)  # suprimidas
+
+
+def test_pose_records_the_analyzed_frame_size(job: JobMessage) -> None:
+    pose = pipeline_for(GOOD_SWING).run(Path("video"), job).pose
+    assert pose.frame_size == (640, 360)
+
+
+class _OneReference:
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+
+    def references(self, stroke: StrokeType, view: str) -> list[ReferenceStroke]:
+        if self.fail:
+            raise RuntimeError("bucket caído")
+        pose = make_pose(GOOD_SWING)
+        return [ReferenceStroke(ref_id="pro", label="Modelo", stroke=stroke, camera_view="side", handedness="right",
+                                source="test", pose=pose, segment=WristSpeedSegmenter().segment(pose, "right"))]
+
+
+def test_report_includes_informative_reference_comparison(job: JobMessage) -> None:
+    stages = replace(stages_for(BAD_SWING), comparator=ReferenceComparator(_OneReference()))
+    report = AnalysisPipeline(stages).run(Path("video"), job).report
+    plain = pipeline_for(BAD_SWING).run(Path("video"), job).report
+    assert report.reference_comparison is not None and report.reference_comparison.status == "ok"
+    assert report.findings == plain.findings and report.strengths == plain.strengths  # no altera el diagnóstico
+    assert plain.reference_comparison is None
+
+
+def test_reference_failure_does_not_break_the_analysis(job: JobMessage) -> None:
+    stages = replace(stages_for(GOOD_SWING), comparator=ReferenceComparator(_OneReference(fail=True)))
+    report = AnalysisPipeline(stages).run(Path("video"), job).report
+    assert report.reference_comparison is None and report.metrics

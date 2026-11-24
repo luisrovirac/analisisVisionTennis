@@ -48,6 +48,16 @@ type analysisResponse struct {
 	UpdatedAt           time.Time       `json:"updated_at"`
 }
 
+type mediaResponse struct {
+	VideoURL  string    `json:"video_url"`
+	PoseURL   string    `json:"pose_url"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+func toMediaResponse(m domain.MediaLinks) mediaResponse {
+	return mediaResponse{VideoURL: m.VideoURL, PoseURL: m.PoseURL, ExpiresAt: m.ExpiresAt}
+}
+
 type uploadTicketResponse struct {
 	Analysis  analysisResponse `json:"analysis"`
 	UploadURL string           `json:"upload_url"`

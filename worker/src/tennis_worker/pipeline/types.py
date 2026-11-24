@@ -21,6 +21,8 @@ class PoseSequence:
     world: (T, 33, 3) metros aproximados, centrados en la cadera; eje y hacia abajo.
     visibility: (T, 33) en [0, 1].
     detected: (T,) False en fotogramas sin detección (los valores pueden ser NaN o interpolados).
+    frame_size: (ancho, alto) de los fotogramas analizados, o None si se desconoce. Los clientes lo usan
+        para comprobar que la relación de aspecto coincide con la del video que reproducen (rotación).
     """
 
     fps: float
@@ -28,6 +30,7 @@ class PoseSequence:
     world: FloatArray
     visibility: FloatArray
     detected: BoolArray
+    frame_size: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         frames = self.detected.shape[0]

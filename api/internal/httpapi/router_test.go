@@ -63,6 +63,11 @@ func (s *stubUseCases) SetExpertReview(_ context.Context, owner, _ string, allow
 	return s.analysis, s.err
 }
 
+func (s *stubUseCases) Media(_ context.Context, owner, _ string) (domain.MediaLinks, error) {
+	s.gotOwner = owner
+	return domain.MediaLinks{VideoURL: "http://v", PoseURL: "http://p", ExpiresAt: time.Unix(0, 0)}, s.err
+}
+
 type stubPreferences struct {
 	stored   domain.Preferences
 	err      error
@@ -122,6 +127,8 @@ func newRouter(uc AnalysisUseCases, prefs PreferenceUseCases, users UserResolver
 		Profiles:    stubProfiles{},
 		Admin:       stubAdmin{},
 		Knowledge:   stubKnowledge{},
+		Cases:       stubCases{},
+		Validation:  stubValidation{},
 		Verifier:    fakeVerifier{},
 		Users:       users,
 		AuthConfig:  ClientAuthConfig{Enabled: true, Issuer: "https://idp", ClientID: "tennis-web"},
@@ -322,5 +329,21 @@ func TestAuthConfigIsPublic(t *testing.T) {
 	body := decode(t, rec)
 	if rec.Code != http.StatusOK || body["client_id"] != "tennis-web" || body["enabled"] != true {
 		t.Fatalf("respuesta inesperada: %d %v", rec.Code, body)
+	}
+}
+
+func TestMediaReturnsSignedURLs(t *testing.T) {
+	uc := &stubUseCases{}
+	rec := do(newTestRouter(uc), http.MethodGet, "/v1/analyses/a1/media", "")
+	body := decode(t, rec)
+	if rec.Code != http.StatusOK || body["video_url"] != "http://v" || body["pose_url"] != "http://p" || uc.gotOwner == "" {
+		t.Fatalf("respuesta inesperada: %d %v", rec.Code, body)
+	}
+}
+
+func TestMediaNotReadyIsConflict(t *testing.T) {
+	rec := do(newTestRouter(&stubUseCases{err: domain.ErrNotReady}), http.MethodGet, "/v1/analyses/a1/media", "")
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body)
 	}
 }

@@ -40,20 +40,29 @@ type knowledgeHandler struct {
 // --- DTOs ---
 
 type releaseDTO struct {
-	ID            string                `json:"id"`
-	Stroke        domain.StrokeType     `json:"stroke"`
-	Version       string                `json:"version"`
-	Changelog     string                `json:"changelog"`
-	ProposalID    *string               `json:"proposal_id"`
-	Active        bool                  `json:"active"`
-	Status        string                `json:"status"`
-	InvalidReason *string               `json:"invalid_reason"`
-	CreatedAt     time.Time             `json:"created_at"`
-	KnowledgeBase *domain.KnowledgeBase `json:"knowledge_base,omitempty"`
+	ID            string                  `json:"id"`
+	Stroke        domain.StrokeType       `json:"stroke"`
+	Version       string                  `json:"version"`
+	Changelog     string                  `json:"changelog"`
+	Entries       []domain.ChangelogEntry `json:"changelog_entries"`
+	Bump          *domain.Bump            `json:"bump"`
+	ProposedBy    string                  `json:"proposed_by_name,omitempty"`
+	ValidatedBy   string                  `json:"validated_by_name,omitempty"`
+	ProposalID    *string                 `json:"proposal_id"`
+	Active        bool                    `json:"active"`
+	Status        string                  `json:"status"`
+	InvalidReason *string                 `json:"invalid_reason"`
+	CreatedAt     time.Time               `json:"created_at"`
+	KnowledgeBase *domain.KnowledgeBase   `json:"knowledge_base,omitempty"`
 }
 
 func toReleaseDTO(r domain.Release, withKB bool) releaseDTO {
-	dto := releaseDTO{ID: r.ID, Stroke: r.Stroke, Version: r.Version, Changelog: r.Changelog, ProposalID: r.ProposalID,
+	entries := r.Entries
+	if entries == nil {
+		entries = []domain.ChangelogEntry{}
+	}
+	dto := releaseDTO{ID: r.ID, Stroke: r.Stroke, Version: r.Version, Changelog: r.Changelog, Entries: entries, Bump: r.Bump,
+		ProposedBy: r.ProposerName, ValidatedBy: r.ValidatorName, ProposalID: r.ProposalID,
 		Active: r.Active, Status: r.Status, InvalidReason: r.InvalidReason, CreatedAt: r.CreatedAt}
 	if withKB {
 		kb := r.KB

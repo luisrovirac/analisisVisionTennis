@@ -11,8 +11,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from tennis_worker.pipeline.landmarks import LEFT, RIGHT
+from tennis_worker.pipeline.landmarks import LEFT, RIGHT, Landmark
 from tennis_worker.pipeline.types import LANDMARK_COUNT, FloatArray, PoseSequence
+
+NOSE = Landmark.NOSE
 
 
 @dataclass(frozen=True)
@@ -30,6 +32,11 @@ class SwingSpec:
     knee_angle_deg: float = 140.0
     follow_through_wrist_y: float = -0.8  # y hacia abajo: -0.8 está por encima del hombro (-0.5)
     visibility: float = 0.9
+    stance_width: float = 0.56  # separación de tobillos (m); hombros = 0.4 → ratio 1.4
+    off_arm_reach: float = 0.4  # distancia horizontal muñeca-hombro del brazo libre (m)
+    racket_drop: float = 0.2  # cuánto baja la muñeca antes del impacto (m)
+    leg_drive_deg: float = 30.0  # extensión de rodilla hacia el impacto
+    head_sway: float = 0.0  # desplazamiento lateral de la cabeza alrededor del impacto (m)
 
 
 GOOD_SWING = SwingSpec()
@@ -38,6 +45,7 @@ BAD_SWING = SwingSpec(
     hip_peak=66, shoulder_peak=58,  # hombros antes que cadera
     wrist_start_deg=-60.0, wrist_end_deg=-10.0,  # arco corto → impacto atrasado
     elbow_angle_deg=90.0, knee_angle_deg=175.0, follow_through_wrist_y=-0.2,
+    stance_width=0.3, off_arm_reach=0.1, racket_drop=0.0, leg_drive_deg=0.0, head_sway=0.4,
 )
 
 
@@ -51,11 +59,12 @@ def _ring(center: FloatArray, yaw_deg: FloatArray, half_width: float) -> tuple[F
     return center - offset, center + offset
 
 
-def _bent_joint(a: FloatArray, c: FloatArray, angle_deg: float, axis: FloatArray) -> FloatArray:
-    """Punto B tal que el ángulo ABC = angle_deg, con |AB| = |BC|, desplazado perpendicularmente a AC."""
+def _bent_joint(a: FloatArray, c: FloatArray, angle_deg: float | FloatArray, axis: FloatArray) -> FloatArray:
+    """Punto B tal que el ángulo ABC = angle_deg, con |AB| = |BC|, desplazado perpendicularmente a AC.
+    angle_deg puede ser un escalar o una serie (T,)."""
     ac = c - a
     d = np.linalg.norm(ac, axis=-1, keepdims=True)
-    half = np.radians(angle_deg) / 2
+    half = np.radians(np.asarray(angle_deg, dtype=float)).reshape(-1, 1) / 2
     length = d / (2 * np.sin(half))
     perp = np.cross(ac, axis)
     perp /= np.linalg.norm(perp, axis=-1, keepdims=True)
@@ -74,13 +83,16 @@ def make_pose(spec: SwingSpec = GOOD_SWING) -> PoseSequence:
     sweep = _sigmoid(t, spec.impact, 4.0)
     wrist_deg = spec.wrist_start_deg + (spec.wrist_end_deg - spec.wrist_start_deg) * sweep
     wrist_y = -0.3 + (spec.follow_through_wrist_y + 0.3) * _sigmoid(t, spec.impact + 12, 4.0)
+    wrist_y += spec.racket_drop * np.exp(-0.5 * ((t - (spec.impact - 12)) / 4.0) ** 2)  # y hacia abajo
     rad = np.radians(wrist_deg)
     world[:, RIGHT.wrist] = np.stack([0.6 * np.cos(rad), wrist_y, 0.6 * np.sin(rad)], axis=-1)
     world[:, RIGHT.elbow] = _bent_joint(world[:, RIGHT.shoulder], world[:, RIGHT.wrist],
                                         spec.elbow_angle_deg, np.array([0.0, 1.0, 0.0]))
-    world[:, LEFT.wrist] = world[:, LEFT.shoulder] + [0.0, 0.4, 0.1]
-    world[:, LEFT.elbow] = world[:, LEFT.shoulder] + [0.0, 0.2, 0.05]
-    _add_legs(world, spec)
+    world[:, LEFT.wrist] = world[:, LEFT.shoulder] + [0.0, 0.2, spec.off_arm_reach]
+    world[:, LEFT.elbow] = world[:, LEFT.shoulder] + [0.0, 0.1, spec.off_arm_reach / 2]
+    sway = spec.head_sway * _sigmoid(t, spec.impact, 3.0)
+    world[:, NOSE] = np.stack([sway, np.full_like(t, -0.75), np.full_like(t, 0.05)], axis=-1)
+    _add_legs(world, spec, t)
     return PoseSequence(
         fps=spec.fps, image=world.copy(), world=world,
         visibility=np.full((spec.frames, LANDMARK_COUNT), spec.visibility),
@@ -88,11 +100,13 @@ def make_pose(spec: SwingSpec = GOOD_SWING) -> PoseSequence:
     )
 
 
-def _add_legs(world: FloatArray, spec: SwingSpec) -> None:
-    for side in (LEFT, RIGHT):
-        world[:, side.ankle] = world[:, side.hip] + [0.0, 0.9, 0.0]
+def _add_legs(world: FloatArray, spec: SwingSpec, t: FloatArray) -> None:
+    """Tobillos fijos en el suelo; la rodilla se extiende hacia el impacto (empuje de piernas)."""
+    knee_angle = spec.knee_angle_deg + spec.leg_drive_deg * _sigmoid(t, spec.impact - 4, 3.0)
+    for side, sign in ((LEFT, -1.0), (RIGHT, 1.0)):
+        world[:, side.ankle] = [sign * spec.stance_width / 2, 0.9, 0.0]
         world[:, side.knee] = _bent_joint(world[:, side.hip], world[:, side.ankle],
-                                          spec.knee_angle_deg, np.array([1.0, 0.0, 0.0]))
+                                          knee_angle, np.array([1.0, 0.0, 0.0]))
 
 
 def static_pose(frames: int = 60) -> PoseSequence:

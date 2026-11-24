@@ -237,7 +237,9 @@ func TestExpertReviewFlagAndPreviewSamples(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return slices.ContainsFunc(samples, func(s domain.MetricSample) bool { return s["knee_angle_min"].Value == 170 })
+		return slices.ContainsFunc(samples, func(s domain.Sample) bool {
+			return s.ID == a.ID && s.View == domain.ViewSide && s.Metrics["knee_angle_min"].Value == 170
+		})
 	}
 	if !contains() {
 		t.Fatal("un análisis permitido debe usarse en la previsualización")
@@ -254,5 +256,51 @@ func TestExpertReviewFlagAndPreviewSamples(t *testing.T) {
 	}
 	if contains() {
 		t.Fatal("un análisis desmarcado sale de inmediato de lo que ven los expertos")
+	}
+}
+
+func TestCasesFilterByRuleAndRespectRevocation(t *testing.T) {
+	pool := newTestPool(t)
+	ctx := context.Background()
+	repo := NewPostgres(pool)
+	owner := newUser(t)
+	params := domain.AnalysisParams{StrokeType: domain.StrokeAuto, Handedness: domain.HandRight, CameraView: domain.ViewSide,
+		ExpertReviewAllowed: true}
+	a := domain.NewAnalysis(uuid.NewString(), owner, params, time.Now().UTC())
+	if err := repo.Create(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	ruleID := "FH-TEST-" + uuid.NewString()
+	report := `{"stroke_type":"forehand","findings":[{"rule_id":"` + ruleID + `"}],"strengths":[]}`
+	if _, err := pool.Exec(ctx, `UPDATE analyses SET status = 'completed', report = $2::jsonb WHERE id = $1::uuid`, a.ID, report); err != nil {
+		t.Fatal(err)
+	}
+	list := func(stroke domain.StrokeType, rule string) []domain.Analysis {
+		items, err := repo.Cases(ctx, domain.CaseFilter{Stroke: stroke, RuleID: rule}, 100)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return items
+	}
+	if got := list(domain.StrokeForehand, ruleID); len(got) != 1 || got[0].ID != a.ID {
+		t.Fatalf("el caso debe aparecer filtrando por su regla y por el golpe detectado: %v", got)
+	}
+	if got := list(domain.StrokeServe, ruleID); len(got) != 0 {
+		t.Fatalf("otro golpe no debe devolverlo: %v", got)
+	}
+	if got := list("", "FH-OTRA-"+uuid.NewString()); len(got) != 0 {
+		t.Fatalf("otra regla no debe devolverlo: %v", got)
+	}
+	if _, err := repo.Case(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := repo.SetExpertReview(ctx, owner, a.ID, false); err != nil || !ok {
+		t.Fatalf("ok=%v err=%v", ok, err)
+	}
+	if got := list("", ruleID); len(got) != 0 {
+		t.Fatal("un caso revocado sale del listado")
+	}
+	if _, err := repo.Case(ctx, a.ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("un caso revocado no se puede abrir: %v", err)
 	}
 }

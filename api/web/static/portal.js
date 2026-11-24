@@ -4,6 +4,7 @@
 // no corresponden. Todo se pinta con textContent (nunca HTML del servidor).
 
 const STROKES = { forehand: "Forehand", backhand: "Revés", serve: "Saque", volley: "Volea" };
+const VIEWS = { side: "Perfil", front: "Frontal", back: "Trasera" };
 const CATEGORIES = { fundamental: "Fundamental", sincronizacion: "Sincronización" };
 const OPS = { lt: "<", lte: "≤", gt: ">", gte: "≥", eq: "=", between: "entre" };
 const STATUS = {
@@ -14,7 +15,7 @@ const ROLES = { admin: "Admin", expert: "Experto", validator: "Validador" };
 const SPECIALTIES = { tennis_coach: "Entrenador de tenis", biomechanics: "Biomecánica", physio: "Fisioterapia", fitness: "Preparación física" };
 
 const $ = (sel) => document.querySelector(sel);
-const state = { me: null, stroke: "forehand", catalog: [], draft: null };
+const state = { me: null, stroke: "forehand", catalog: [], draft: null, caseRule: "", viewer: null };
 
 boot();
 
@@ -48,6 +49,9 @@ function has(...roles) {
 function renderTabs() {
   const tabs = [
     ["kb", "Base de conocimiento", has("expert", "validator", "admin"), showKnowledge],
+    ["cases", "Casos", has("expert", "validator", "admin"), showCases],
+    ["campaigns", "Campañas y corpus", has("expert", "validator", "admin"), showCampaigns],
+    ["quality", "Calidad de la base", has("expert", "validator", "admin"), showQuality],
     ["mine", "Mis propuestas", has("expert"), showMyProposals],
     ["review", "Validación", has("validator"), showReviewInbox],
     ["metrics", "Solicitudes de métricas", has("expert", "validator", "admin"), showMetricRequests],
@@ -71,6 +75,7 @@ function renderTabs() {
 }
 
 function select(id, show) {
+  closeViewer();
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.id === `tab-${id}`));
   flash("");
   show().catch((err) => flash(err.message, true));
@@ -98,7 +103,8 @@ async function showKnowledge() {
     picker,
     el("div", { className: "card" },
       el("p", {}, el("strong", {}, `Versión activa: ${release.version}`), ` · ${kb.rules.length} reglas · `,
-        `${kb.rules.filter((r) => r.validated).length} validadas`),
+        `${kb.rules.filter((r) => ruleStatus(r) !== "heuristic_unvalidated").length} revisadas · `,
+        `${kb.rules.filter((r) => ruleStatus(r) === "empirically_validated").length} validadas con datos`),
       actions),
     el("h2", {}, "Errores"), ...errors.map((r) => ruleCard(r)),
     el("h2", {}, "Puntos fuertes"), ...strengths.map((r) => ruleCard(r)),
@@ -119,6 +125,10 @@ function strokePicker(onChange) {
 
 function ruleCard(rule) {
   const actions = [];
+  actions.push(button("Ver casos donde dispara", () => {
+    state.caseRule = rule.id;
+    select("cases", showCases);
+  }, "secondary"));
   if (has("expert")) {
     actions.push(button("Proponer cambio", () => openEditor({ rule: structuredClone(rule) }), "secondary"));
     actions.push(button("Proponer retirarla", () => openEditor({ removeId: rule.id }), "danger"));
@@ -127,7 +137,7 @@ function ruleCard(rule) {
     el("div", { className: "rule-head" },
       el("strong", {}, `${rule.id} · ${rule.title}`),
       el("span", {}, tag(CATEGORIES[rule.category] || rule.category, rule.category),
-        tag(rule.validated ? "Validada" : "Provisional", rule.validated ? "validated" : "provisional"))),
+        statusTag(ruleStatus(rule)))),
     el("p", { className: "mono" }, conditionsText(rule)),
     el("p", {}, rule.explanation),
     rule.polarity === "strength"
@@ -135,8 +145,109 @@ function ruleCard(rule) {
       : el("p", { className: "correction" }, el("strong", {}, "Corrección: "), rule.correction),
     listLine("Ejercicios", rule.drills), listLine("Causado por", rule.caused_by),
     listLine("No se elogia si aparece", rule.suppressed_by), listLine("Referencias", rule.references),
+    listLine("Solo con vista", (rule.views || []).map((v) => VIEWS[v] || v)),
+    rule.evidence ? el("p", { className: "muted" }, `Evidencia${rule.evidence_level ? ` (${EVIDENCE_LEVELS[rule.evidence_level]})` : ""}: ${rule.evidence}`) : "",
+    validationLine(rule.validation),
     el("p", { className: "muted" }, `Impacto ${rule.impact}/5 · dificultad ${rule.difficulty}/5`),
     actions.length ? el("div", { className: "actions" }, ...actions) : "");
+}
+
+// ---------- Casos (video + esqueleto de análisis reales con permiso de revisión) ----------
+
+async function showCases() {
+  const view = $("#view");
+  const ruleInput = input(state.caseRule, "Filtrar por regla (p. ej. FH-PREP-1)");
+  const search = () => {
+    state.caseRule = ruleInput.value.trim();
+    showCases().catch((err) => flash(err.message, true));
+  };
+  ruleInput.onkeydown = (e) => e.key === "Enter" && search();
+  const list = el("tbody");
+  const more = el("div", { className: "actions" });
+  view.replaceChildren(
+    el("div", { className: "card" },
+      el("p", { className: "muted" }, "Análisis reales cuyo dueño permitió la revisión experta. Abre uno para ver el video con el esqueleto y comprobar si las reglas aciertan. No se muestra quién es el jugador."),
+      el("div", { className: "actions" }, strokePicker(() => showCases()), ruleInput, button("Buscar", search, "secondary"))),
+    el("table", {}, el("thead", {}, el("tr", {}, ...["Fecha", "Vista", "Errores", "Puntos fuertes", ""].map((h) => el("th", {}, h)))), list),
+    more);
+  await loadCatalog();
+  await loadCasePage(list, more, "");
+}
+
+async function loadCasePage(list, more, cursor) {
+  const params = new URLSearchParams({ stroke: state.stroke, limit: "20" });
+  if (state.caseRule) params.set("rule_id", state.caseRule);
+  if (cursor) params.set("cursor", cursor);
+  const page = await api(`/v1/kb/cases?${params}`);
+  if (!cursor && page.items.length === 0) {
+    list.replaceChildren(el("tr", {}, el("td", { colSpan: 5, className: "muted" }, "No hay casos con estos filtros.")));
+  }
+  list.append(...page.items.map((c) => el("tr", {},
+    el("td", {}, new Date(c.created_at).toLocaleString()),
+    el("td", {}, VIEWS[c.camera_view] || c.camera_view),
+    el("td", { className: "mono" }, c.finding_rule_ids.join(", ") || "—"),
+    el("td", { className: "mono" }, c.strength_rule_ids.join(", ") || "—"),
+    el("td", {}, button("Abrir", () => showCase(c.id).catch((err) => flash(err.message, true)), "secondary")))));
+  more.replaceChildren(page.next_cursor
+    ? button("Cargar más", () => loadCasePage(list, more, page.next_cursor).catch((err) => flash(err.message, true)), "secondary")
+    : "");
+}
+
+async function showCase(id) {
+  closeViewer();
+  const c = await api(`/v1/kb/cases/${id}`);
+  const report = c.report;
+  const box = el("div", {}, el("p", { className: "muted" }, "Cargando video y esqueleto…"));
+  const focus = (evidence, tone) => {
+    if (state.viewer) state.viewer.focus(report.segment.impact_frame, SkeletonViewer.landmarksFor(report, Object.keys(evidence || {})), tone);
+  };
+  const evidenceLine = (evidence) => el("p", { className: "mono" },
+    Object.entries(evidence || {}).map(([m, v]) => `${metricLabel(m)} = ${Number(v).toFixed(2)}`).join(" · "));
+  const findings = (report.findings || []).map((f) => el("article", { className: "card rule" },
+    el("div", { className: "rule-head" }, el("strong", {}, `${f.rule_id} · ${f.title}`),
+      tag(f.validated ? "Validada" : "Provisional", f.validated ? "validated" : "provisional")),
+    evidenceLine(f.evidence),
+    button("Ver en el video", () => focus(f.evidence, "error"), "secondary")));
+  const strengths = (report.strengths || []).map((s) => el("article", { className: "card rule" },
+    el("strong", {}, `${s.rule_id} · ${s.title}`), evidenceLine(s.evidence),
+    button("Ver en el video", () => focus(s.evidence, "strength"), "secondary")));
+  const metrics = el("table", {},
+    el("thead", {}, el("tr", {}, ...["Métrica", "Valor", "Confianza"].map((h) => el("th", {}, h)))),
+    el("tbody", {}, ...(report.metrics || []).map((m) => {
+      const name = button(m.label, () => focus({ [m.id]: m.value }, "error"), "link");
+      return el("tr", {}, el("td", {}, name), el("td", {}, `${m.value.toFixed(2)} ${m.unit}`),
+        el("td", { className: m.confidence < 0.5 ? "error-text" : "" }, `${Math.round(m.confidence * 100)}%`));
+    })));
+  const rel = report.reliability;
+  const reviewBox = el("div", {});
+  $("#view").replaceChildren(
+    el("div", { className: "actions" }, button("← Volver a los casos", () => showCases().catch((err) => flash(err.message, true)), "secondary")),
+    el("div", { className: "card" },
+      el("p", {}, el("strong", {}, `${STROKES[c.stroke_type] || c.stroke_type || "Golpe"} · vista ${VIEWS[c.camera_view] || c.camera_view} · ${c.handedness === "left" ? "zurdo" : "diestro"}`),
+        ` · ${new Date(c.created_at).toLocaleString()} · base ${report.knowledge_base_version}`),
+      rel ? el("p", { className: "muted" }, `Fiabilidad: ${rel.level} (${Math.round(rel.score * 100)}%). ${rel.reasons.join(" ")}`) : "",
+      ...(report.quality?.warnings || []).map((w) => el("p", { className: "warning" }, w)),
+      box),
+    SkeletonViewer.comparisonCard(report.reference_comparison) || "",
+    el("h2", {}, "Errores detectados"), ...(findings.length ? findings : [el("p", { className: "muted" }, "Ninguno.")]),
+    el("h2", {}, "Puntos fuertes"), ...(strengths.length ? strengths : [el("p", { className: "muted" }, "Ninguno.")]),
+    el("h2", {}, "Métricas"), metrics,
+    reviewBox);
+  reviewPanel(id, report, c.stroke_type || state.stroke)
+    .then((panel) => reviewBox.replaceChildren(panel))
+    .catch((err) => reviewBox.replaceChildren(el("p", { className: "muted" }, err.message)));
+  try {
+    const pose = await SkeletonViewer.loadPose(c.pose_url);
+    if (!box.isConnected) return; // el usuario salió del caso mientras cargaba
+    state.viewer = SkeletonViewer.create(box, { videoUrl: c.video_url, pose, segment: report.segment });
+  } catch (err) {
+    box.replaceChildren(el("p", { className: "muted" }, `No se pudo cargar el video: ${err.message}`));
+  }
+}
+
+function closeViewer() {
+  if (state.viewer) state.viewer.destroy();
+  state.viewer = null;
 }
 
 function releasesTable(items) {
@@ -146,7 +257,7 @@ function releasesTable(items) {
     el("tbody", {}, ...items.map((r) => el("tr", {},
       el("td", {}, r.version + (r.active ? " (activa)" : "")),
       el("td", {}, new Date(r.created_at).toLocaleString()),
-      el("td", {}, r.changelog || "—"),
+      el("td", {}, changelogCell(r)),
       el("td", {}, r.status === "invalid" ? `Rechazada por el worker: ${r.invalid_reason || ""}` : "Válida"),
       el("td", {}, canActivate && !r.active && r.status === "valid"
         ? button("Reactivar (rollback)", () => activate(r), "secondary") : "")))));
@@ -233,6 +344,10 @@ function ruleForm(rule, onAdd) {
     causedBy: input((rule.caused_by || []).join(", "), "IDs de errores que lo explican, separados por comas"),
     suppressedBy: input((rule.suppressed_by || []).join(", "), "IDs de errores que impiden elogiarlo"),
     references: textarea((rule.references || []).join("\n"), "Una referencia por línea (p. ej. PMID 24149800)"),
+    views: Object.fromEntries(Object.keys(VIEWS).map((v) => [v, el("input", { type: "checkbox", checked: (rule.views || []).includes(v) })])),
+    evidence: textarea(rule.evidence || "", "Justificación: literatura, observaciones, casos revisados"),
+    evidenceLevel: selectOf(EVIDENCE_LEVELS, rule.evidence_level || ""),
+    empirical: el("input", { type: "checkbox", checked: rule.validation_status === "empirically_validated" }),
   };
   f.id.readOnly = rule.id !== ""; // editar una regla existente no cambia su id (cambiarlo crearía otra)
   const condBox = el("div", {});
@@ -260,6 +375,11 @@ function ruleForm(rule, onAdd) {
     if (lines(f.references.value).length) r.references = lines(f.references.value);
     if (r.polarity === "error" && ids(f.causedBy.value).length) r.caused_by = ids(f.causedBy.value);
     if (r.polarity === "strength" && ids(f.suppressedBy.value).length) r.suppressed_by = ids(f.suppressedBy.value);
+    const views = Object.keys(VIEWS).filter((v) => f.views[v].checked);
+    if (views.length && views.length < Object.keys(VIEWS).length) r.views = views; // todas = sin restricción
+    if (f.evidence.value.trim()) r.evidence = f.evidence.value.trim();
+    if (f.evidenceLevel.value) r.evidence_level = f.evidenceLevel.value;
+    if (f.empirical.checked) r.validation_status = "empirically_validated"; // la API comprueba la evidencia al aprobar
     return r;
   };
   const preview = async () => {
@@ -281,6 +401,17 @@ function ruleForm(rule, onAdd) {
     label("Por qué importa (si es un punto fuerte)", f.why), label("Cómo aprovecharlo", f.maintain),
     label("Ejercicios", f.drills), label("Causado por", f.causedBy), label("No elogiar si aparece", f.suppressedBy),
     label("Referencias", f.references),
+    el("fieldset", {}, el("legend", {}, "Vistas de cámara en las que la regla es fiable (ninguna marcada = todas)"),
+      ...Object.entries(VIEWS).map(([v, name]) => el("label", { className: "check" }, f.views[v], ` ${name}`))),
+    el("h4", {}, "Evidencia y validación"),
+    label("Justificación", f.evidence), label("Nivel de evidencia", f.evidenceLevel),
+    el("label", { className: "check" }, f.empirical,
+      ` Pedir «validada con datos»: el validador solo podrá aprobarla si acierta contra el ground truth de test (n ≥ 30, precisión y recall ≥ 0,8).`),
+    calibrationBox(build, (idx, value) => {
+      conditions[idx].value = value;
+      renderConds();
+      flash(`Umbral ajustado a ${value}. Revisa la regla y añádela a la propuesta.`);
+    }),
     el("div", { className: "actions" }, button("Previsualizar impacto", preview, "secondary"),
       button("Añadir a la propuesta", () => onAdd(build()))),
     previewOut);
@@ -359,7 +490,7 @@ async function showProposal(id) {
     el("div", { className: "card" }, el("h3", {}, "Motivo"), el("p", { className: "pre" }, p.rationale),
       p.evidence ? el("div", {}, el("h3", {}, "Evidencia"), el("p", { className: "pre" }, p.evidence)) : ""),
     el("h3", {}, "Cambios"),
-    ...p.changes.map((c) => changeDiff(c, current, impacts)),
+    ...p.changes.map((c) => changeDiff(c, current, impacts, p.stroke)),
   ];
   if (p.decision_note) blocks.push(el("p", { className: "card" }, el("strong", {}, `Decisión (${p.decider_name}): `), p.decision_note));
   blocks.push(commentsBox(p, d.comments));
@@ -376,7 +507,7 @@ async function showProposal(id) {
   $("#view").replaceChildren(...blocks);
 }
 
-function changeDiff(c, current, impacts) {
+function changeDiff(c, current, impacts, stroke) {
   const id = c.rule?.id || c.rule_id;
   const before = current[id];
   const impact = impacts[id];
@@ -384,6 +515,9 @@ function changeDiff(c, current, impacts) {
   return el("div", { className: "card" },
     el("strong", {}, c.op === "remove_rule" ? `Retirar ${id}` : before ? `Editar ${id}` : `Nueva regla ${id}`),
     impact ? el("p", { className: "muted" }, `Se dispara en análisis recientes: antes ${count(impact.before)} → después ${count(impact.after)}`) : "",
+    c.rule ? evidenceLine(stroke, c.rule) : "",
+    c.rule?.validation_status === "empirically_validated"
+      ? el("p", { className: "warning" }, "Pide «validada con datos»: la aprobación fallará si la evidencia de test no alcanza.") : "",
     el("div", { className: "diff" },
       el("div", {}, el("h4", {}, "Actual"), el("pre", {}, before ? JSON.stringify(before, null, 2) : "(no existe)")),
       el("div", {}, el("h4", {}, "Propuesto"), el("pre", {}, c.rule ? JSON.stringify(c.rule, null, 2) : "(se retira)"))));
@@ -534,6 +668,17 @@ async function loadCatalog() {
 function metricLabel(id) {
   const m = state.catalog.find((x) => x.id === id && x.stroke === state.stroke) || state.catalog.find((x) => x.id === id);
   return m ? `${m.label} (${m.unit})` : id;
+}
+
+function validationLine(v) {
+  if (!v) return "";
+  const parts = [];
+  if (v.validated_at) parts.push(`aprobada el ${new Date(v.validated_at).toLocaleDateString()}`);
+  if (v.n) parts.push(`n=${v.n}`);
+  if (v.precision !== undefined && v.precision !== null) parts.push(`precisión ${Math.round(v.precision * 100)}%`);
+  if (v.recall !== undefined && v.recall !== null) parts.push(`recall ${Math.round(v.recall * 100)}%`);
+  if (v.alpha !== undefined && v.alpha !== null) parts.push(`α ${v.alpha.toFixed(2)}`);
+  return parts.length ? el("p", { className: "muted" }, `Validación: ${parts.join(" · ")}`) : "";
 }
 
 function conditionsText(rule) {

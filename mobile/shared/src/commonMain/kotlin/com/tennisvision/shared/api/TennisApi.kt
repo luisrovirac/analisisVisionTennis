@@ -4,6 +4,8 @@ import com.tennisvision.shared.model.Analysis
 import com.tennisvision.shared.model.AnalysisPage
 import com.tennisvision.shared.model.ApiError
 import com.tennisvision.shared.model.CreateAnalysisRequest
+import com.tennisvision.shared.model.MediaLinks
+import com.tennisvision.shared.model.PoseSequence
 import com.tennisvision.shared.model.Preferences
 import com.tennisvision.shared.model.UploadTicket
 import io.ktor.client.HttpClient
@@ -64,6 +66,12 @@ class TennisApi(
     suspend fun submit(id: String): Analysis = api.post("$base/v1/analyses/$id/submit").parse()
 
     suspend fun get(id: String): Analysis = api.get("$base/v1/analyses/$id").parse()
+
+    /** URLs firmadas del video y de la pose para el visor de esqueleto (solo análisis completados). */
+    suspend fun media(id: String): MediaLinks = api.get("$base/v1/analyses/$id/media").parse()
+
+    /** Descarga la pose por fotograma desde su URL firmada (sin bearer: la firma ya autoriza). */
+    suspend fun pose(url: String): PoseSequence = storage.get(url).parse()
 
     suspend fun list(cursor: String? = null, limit: Int = 20): AnalysisPage =
         api.get("$base/v1/analyses") {

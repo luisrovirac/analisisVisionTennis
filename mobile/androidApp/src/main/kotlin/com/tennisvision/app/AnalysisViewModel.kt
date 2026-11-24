@@ -11,6 +11,7 @@ import com.tennisvision.shared.auth.Tokens
 import com.tennisvision.shared.model.AnalysisSummary
 import com.tennisvision.shared.model.CreateAnalysisRequest
 import com.tennisvision.shared.model.Handedness
+import com.tennisvision.shared.model.PoseSequence
 import com.tennisvision.shared.model.Preferences
 import com.tennisvision.shared.userMessage
 import kotlinx.coroutines.Job
@@ -22,6 +23,13 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+/** Video + esqueleto del análisis mostrado (GET /media y la pose firmada), cargado aparte del informe. */
+sealed interface MediaState {
+    data object Loading : MediaState
+    data class Ready(val videoUrl: String, val pose: PoseSequence) : MediaState
+    data class Unavailable(val message: String) : MediaState
+}
+
 data class UiState(
     val progress: AnalysisProgress? = null,
     val history: List<AnalysisSummary> = emptyList(),
@@ -31,6 +39,7 @@ data class UiState(
     val handedness: String = Handedness.RIGHT,
     /** Checkbox "Permitir que expertos vean este video": marcado por defecto en cada subida. */
     val expertReviewAllowed: Boolean = true,
+    val media: MediaState? = null,
 )
 
 /** Delgado: orquesta los casos de uso compartidos y expone estado; la lógica de red está en :shared. */
@@ -43,6 +52,7 @@ class AnalysisViewModel(
     val state: StateFlow<UiState> = _state.asStateFlow()
     val loggedIn: StateFlow<Boolean> = auth.loggedIn
     private var running: Job? = null
+    private var mediaJob: Job? = null
     private var shownAnalysisId: String? = null
 
     fun onLogin(result: Result<Tokens>) {
@@ -96,8 +106,9 @@ class AnalysisViewModel(
                 .onSuccess {
                     if (shownAnalysisId == id) {
                         running?.cancel()
+                        mediaJob?.cancel()
                         shownAnalysisId = null
-                        _state.update { it.copy(progress = null, busy = false) }
+                        _state.update { it.copy(progress = null, busy = false, media = null) }
                     }
                     refreshHistory()
                 }
@@ -113,6 +124,20 @@ class AnalysisViewModel(
         }
     }
 
+    private fun loadMedia(id: String) {
+        mediaJob?.cancel()
+        _state.update { it.copy(media = MediaState.Loading) }
+        mediaJob = viewModelScope.launch {
+            runCatching {
+                val links = api.media(id)
+                MediaState.Ready(links.videoUrl, api.pose(links.poseUrl))
+            }.onSuccess { media -> if (shownAnalysisId == id) _state.update { it.copy(media = media) } }
+                .onFailure { e ->
+                    if (shownAnalysisId == id) _state.update { it.copy(media = MediaState.Unavailable(e.userMessage())) }
+                }
+        }
+    }
+
     private fun loadPreferences() {
         viewModelScope.launch {
             runCatching { api.preferences() }
@@ -123,12 +148,16 @@ class AnalysisViewModel(
 
     private fun follow(progress: Flow<AnalysisProgress>) {
         running?.cancel()
-        _state.update { it.copy(busy = true, error = null, progress = null) }
+        mediaJob?.cancel()
+        _state.update { it.copy(busy = true, error = null, progress = null, media = null) }
         running = viewModelScope.launch {
             progress
                 .catch { e -> _state.update { it.copy(error = e.userMessage()) } }
                 .collect { p ->
-                    if (p is AnalysisProgress.Completed) shownAnalysisId = p.analysis.id
+                    if (p is AnalysisProgress.Completed) {
+                        shownAnalysisId = p.analysis.id
+                        loadMedia(p.analysis.id)
+                    }
                     _state.update { it.copy(progress = p) }
                 }
             _state.update { it.copy(busy = false) }

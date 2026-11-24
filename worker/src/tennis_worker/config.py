@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 KNOWN_CLASSIFIERS = frozenset({"user", "pose_seq", "yolo"})
@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     s3_use_ssl: bool = False
 
     pose_model_path: Path
+    # Estimador de pose. mediapipe (por defecto) o rtmpose_motionbert (fase 2: RTMPose 2D + MotionBERT 3D;
+    # requiere MOTIONBERT_MODEL_VERSION, ver Docs/BASE_CONOCIMIENTO.md, "Comparar estimadores de pose").
+    pose_estimator: Literal["mediapipe", "rtmpose_motionbert"] = "mediapipe"
+    motionbert_model_version: str = ""
     knowledge_base_dir: Path  # semilla YAML (y fuente directa si knowledge_source = yaml)
     # postgres: versión publicada desde el portal de expertos (por defecto); yaml: solo los archivos.
     knowledge_source: Literal["postgres", "yaml"] = "postgres"
@@ -48,6 +52,16 @@ class Settings(BaseSettings):
     job_claim_idle_seconds: int = Field(default=600, ge=10)
     min_pose_detection_rate: float = Field(default=0.6, gt=0, le=1)
     min_metric_confidence: float = Field(default=0.5, ge=0, le=1)
+    # Robustez de la medición (fase 1 de la mejora de la pose 2D; ver Docs/BASE_CONOCIMIENTO.md).
+    pose_smoothing_seconds: float = Field(default=0.1, ge=0, le=0.5)  # Savitzky-Golay; 0 = sin suavizado
+    impact_from_audio: bool = True  # fija el impacto con el sonido del golpe cuando se oye
+    metric_sensitivity_check: bool = True  # recalcula cada métrica moviendo el impacto dentro de su incertidumbre
+    impact_uncertainty_seconds: float = Field(default=0.05, gt=0, le=0.2)  # impacto estimado por la muñeca
+    # Comparación informativa con golpes de referencia (DTW). Sin referencias registradas en el bucket
+    # (scripts/register_reference.py) el reporte dice "no_references" y nada más cambia.
+    reference_comparison_enabled: bool = True
+    reference_similarity_scale_deg: float = Field(default=20.0, gt=0)
+    reference_refresh_seconds: float = Field(default=300.0, gt=0)
     log_level: str = "INFO"
 
     # Clasificación del golpe. Por defecto, comportamiento de la etapa 1: lo declara el usuario.
@@ -83,6 +97,12 @@ class Settings(BaseSettings):
     def _parse_weights(cls, value: str) -> str:
         _weights(value)  # falla al arrancar si el formato es inválido
         return value
+
+    @model_validator(mode="after")
+    def _motionbert_needs_a_model(self) -> Settings:
+        if self.pose_estimator == "rtmpose_motionbert" and not self.motionbert_model_version:
+            raise ValueError("POSE_ESTIMATOR=rtmpose_motionbert requiere MOTIONBERT_MODEL_VERSION")
+        return self
 
     @property
     def classifier_ids(self) -> list[str]:

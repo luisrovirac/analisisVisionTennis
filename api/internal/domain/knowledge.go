@@ -90,7 +90,16 @@ type Rule struct {
 	CausedBy      []string       `json:"caused_by,omitempty"`
 	SuppressedBy  []string       `json:"suppressed_by,omitempty"`
 	References    []string       `json:"references,omitempty"`
-	Validated     bool           `json:"validated,omitempty"`
+	// Views: vistas de cámara en las que la regla es fiable (vacío = todas). El worker no la evalúa fuera de ellas.
+	Views []CameraView `json:"views,omitempty"`
+	// KB 2.1: trazabilidad de la validación. ValidationStatus y Validation solo los fija la API al
+	// aprobar; el experto puede pedir empirically_validated, que exige evidencia contra el ground truth.
+	ValidationStatus string          `json:"validation_status,omitempty"`
+	Validation       *RuleValidation `json:"validation,omitempty"`
+	Evidence         string          `json:"evidence,omitempty"`       // justificación del experto
+	EvidenceLevel    string          `json:"evidence_level,omitempty"` // provisional | literature | expert_validated
+	// Validated es el legado de KB 2.0 = validation_status != heuristic_unvalidated.
+	Validated bool `json:"validated,omitempty"`
 }
 
 func (r Rule) IsStrength() bool { return r.Polarity == PolarityStrength }
@@ -149,7 +158,32 @@ func (r Rule) problems() []error {
 		add("%s: impact y difficulty van de 1 a 5", r.ID)
 	}
 	errs = append(errs, r.validateWhen()...)
+	errs = append(errs, r.validateViews()...)
+	if r.ValidationStatus != "" && !slices.Contains(validationStatuses, r.ValidationStatus) {
+		add("%s: validation_status debe ser uno de %v", r.ID, validationStatuses)
+	}
+	if r.EvidenceLevel != "" && !slices.Contains(evidenceLevels, r.EvidenceLevel) {
+		add("%s: evidence_level debe ser uno de %v", r.ID, evidenceLevels)
+	}
+	if len(r.Evidence) > maxTextLen {
+		add("%s: evidence tiene un máximo de %d caracteres", r.ID, maxTextLen)
+	}
 	return append(errs, r.validateTexts()...)
+}
+
+func (r Rule) validateViews() []error {
+	var errs []error
+	seen := map[CameraView]bool{}
+	for _, v := range r.Views {
+		if !slices.Contains(cameraViews, v) {
+			errs = append(errs, fmt.Errorf("%s: vista %q no es una de %v", r.ID, v, cameraViews))
+		}
+		if seen[v] {
+			errs = append(errs, fmt.Errorf("%s: vista %q repetida", r.ID, v))
+		}
+		seen[v] = true
+	}
+	return errs
 }
 
 func (r Rule) validateWhen() []error {
@@ -214,7 +248,12 @@ func (r Rule) Normalize() Rule {
 	}
 	r.Title, r.Explanation = strings.TrimSpace(r.Title), strings.TrimSpace(r.Explanation)
 	r.Correction, r.WhyItMatters = strings.TrimSpace(r.Correction), strings.TrimSpace(r.WhyItMatters)
-	r.HowToMaintain = strings.TrimSpace(r.HowToMaintain)
+	r.HowToMaintain, r.Evidence = strings.TrimSpace(r.HowToMaintain), strings.TrimSpace(r.Evidence)
+	if r.ValidationStatus == "" {
+		// Snapshots de KB 2.0: validated=true venía de una aprobación.
+		r.ValidationStatus = map[bool]string{true: ValidationExpertReviewed, false: ValidationHeuristic}[r.Validated]
+	}
+	r.Validated = r.ValidationStatus != ValidationHeuristic
 	return r
 }
 
@@ -257,18 +296,31 @@ func (kb KnowledgeBase) Validate(catalog []MetricInfo) error {
 	return fmt.Errorf("%w: %w", ErrInvalidInput, errors.Join(errs...))
 }
 
-// NextVersion sube el minor (0.2.0 → 0.3.0): cada aprobación publica una versión nueva.
-func NextVersion(version string) (string, error) {
+// NextVersion sube el minor (0.2.0 → 0.3.0).
+func NextVersion(version string) (string, error) { return BumpVersion(version, BumpMinor) }
+
+// BumpVersion aplica un salto semver: major (x+1.0.0), minor (x.y+1.0) o patch (x.y.z+1).
+func BumpVersion(version string, bump Bump) (string, error) {
 	parts := strings.Split(version, ".")
 	if len(parts) != 3 {
 		return "", fmt.Errorf("versión %q no es semver", version)
 	}
-	major, err1 := strconv.Atoi(parts[0])
-	minor, err2 := strconv.Atoi(parts[1])
-	if err1 != nil || err2 != nil {
-		return "", fmt.Errorf("versión %q no es semver", version)
+	nums := make([]int, 3)
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return "", fmt.Errorf("versión %q no es semver", version)
+		}
+		nums[i] = n
 	}
-	return fmt.Sprintf("%d.%d.0", major, minor+1), nil
+	switch bump {
+	case BumpMajor:
+		return fmt.Sprintf("%d.0.0", nums[0]+1), nil
+	case BumpPatch:
+		return fmt.Sprintf("%d.%d.%d", nums[0], nums[1], nums[2]+1), nil
+	default:
+		return fmt.Sprintf("%d.%d.0", nums[0], nums[1]+1), nil
+	}
 }
 
 // --- Propuestas ---
@@ -297,7 +349,8 @@ func (c Change) TargetID() string {
 const maxChanges = 30
 
 // ApplyChanges devuelve la base resultante sin modificar la original. Con validated=true (al aprobar)
-// las reglas creadas o editadas quedan marcadas como validadas; el experto nunca puede marcarlas.
+// las reglas creadas o editadas pasan a expert_reviewed, o se quedan en empirically_validated si el
+// experto lo pidió (el servicio comprueba la evidencia antes); el experto nunca puede marcarlas.
 func ApplyChanges(kb KnowledgeBase, changes []Change, validated bool) (KnowledgeBase, error) {
 	out := kb
 	out.Rules = slices.Clone(kb.Rules)
@@ -305,6 +358,12 @@ func ApplyChanges(kb KnowledgeBase, changes []Change, validated bool) (Knowledge
 		switch c.Op {
 		case OpUpsertRule:
 			rule := c.Rule.Normalize()
+			switch {
+			case validated && rule.ValidationStatus != ValidationEmpirical:
+				rule.ValidationStatus = ValidationExpertReviewed
+			case !validated:
+				rule.ValidationStatus, rule.Validation = ValidationHeuristic, nil
+			}
 			rule.Validated = validated
 			if i := slices.IndexFunc(out.Rules, func(r Rule) bool { return r.ID == rule.ID }); i >= 0 {
 				out.Rules[i] = rule
@@ -386,7 +445,8 @@ func (c Change) validate() error {
 	}
 }
 
-// Sanitized normaliza las reglas y borra cualquier `validated` que el experto haya intentado fijar.
+// Sanitized normaliza las reglas y borra cualquier validación que el experto haya intentado fijar. Solo
+// puede *pedir* empirically_validated: la API lo concede al aprobar si la evidencia alcanza.
 func (in ProposalInput) Sanitized() ProposalInput {
 	out := in
 	out.Title, out.Rationale, out.Evidence = strings.TrimSpace(in.Title), strings.TrimSpace(in.Rationale), strings.TrimSpace(in.Evidence)
@@ -394,7 +454,10 @@ func (in ProposalInput) Sanitized() ProposalInput {
 	for i, c := range in.Changes {
 		if c.Rule != nil {
 			rule := c.Rule.Normalize()
-			rule.Validated = false
+			if rule.ValidationStatus != ValidationEmpirical {
+				rule.ValidationStatus = ValidationHeuristic
+			}
+			rule.Validated, rule.Validation = false, nil
 			c.Rule = &rule
 		}
 		out.Changes[i] = c
@@ -444,9 +507,13 @@ type Release struct {
 	Version       string
 	KB            KnowledgeBase
 	Changelog     string
+	Entries       []ChangelogEntry
+	Bump          *Bump
 	ProposalID    *string
 	ProposedBy    *string
+	ProposerName  string
 	ValidatedBy   *string
+	ValidatorName string
 	Active        bool
 	Status        string
 	InvalidReason *string
@@ -523,10 +590,23 @@ type RuleCount struct {
 	Measurable int `json:"measurable"`
 }
 
-func CountRule(r Rule, samples []MetricSample, minConfidence float64) RuleCount {
+// AppliesTo replica al worker: fuera de sus vistas la regla no se evalúa (vista vacía = desconocida).
+func (r Rule) AppliesTo(view CameraView) bool {
+	return view == "" || len(r.Views) == 0 || slices.Contains(r.Views, view)
+}
+
+// EvaluateSample es Evaluate respetando la vista de cámara con que se grabó el análisis.
+func (r Rule) EvaluateSample(s Sample, minConfidence float64) (measurable, fired bool) {
+	if !r.AppliesTo(s.View) {
+		return false, false
+	}
+	return r.Evaluate(s.Metrics, minConfidence)
+}
+
+func CountRule(r Rule, samples []Sample, minConfidence float64) RuleCount {
 	var c RuleCount
 	for _, s := range samples {
-		measurable, fired := r.Evaluate(s, minConfidence)
+		measurable, fired := r.EvaluateSample(s, minConfidence)
 		if measurable {
 			c.Measurable++
 		}

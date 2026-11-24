@@ -167,15 +167,22 @@ func TestNextVersion(t *testing.T) {
 
 func TestEvaluateMirrorsWorkerEngine(t *testing.T) {
 	r := errorRule("FH-X-001")
-	samples := []MetricSample{
-		{"knee_angle_min": {Value: 170, Confidence: 0.9}}, // dispara
-		{"knee_angle_min": {Value: 150, Confidence: 0.9}}, // medible, no dispara
-		{"knee_angle_min": {Value: 175, Confidence: 0.2}}, // poco fiable: no cuenta
-		{},
+	samples := []Sample{
+		{Metrics: MetricSample{"knee_angle_min": {Value: 170, Confidence: 0.9}}}, // dispara
+		{Metrics: MetricSample{"knee_angle_min": {Value: 150, Confidence: 0.9}}}, // medible, no dispara
+		{Metrics: MetricSample{"knee_angle_min": {Value: 175, Confidence: 0.2}}}, // poco fiable: no cuenta
+		{Metrics: MetricSample{}},
 	}
 	if got := CountRule(r, samples, 0.5); got != (RuleCount{Fired: 1, Measurable: 2}) {
 		t.Fatalf("got %+v", got)
 	}
+	// Fuera de sus vistas la regla no se evalúa (igual que el worker).
+	r.Views = []CameraView{ViewSide}
+	front := []Sample{{View: ViewFront, Metrics: MetricSample{"knee_angle_min": {Value: 170, Confidence: 0.9}}}}
+	if got := CountRule(r, front, 0.5); got != (RuleCount{}) {
+		t.Fatalf("una regla de vista lateral no cuenta en vista frontal: %+v", got)
+	}
+	r.Views = nil
 	r.When = ConditionGroup{Any: []Condition{
 		{Metric: "a", Op: "between", Value: Threshold{Low: 1, High: 2, IsRange: true}},
 		{Metric: "b", Op: "eq", Value: Threshold{Value: 1}},
@@ -191,5 +198,26 @@ func TestThresholdRejectsGarbage(t *testing.T) {
 		if err := json.Unmarshal([]byte(raw), &th); err == nil {
 			t.Errorf("%s debería rechazarse", raw)
 		}
+	}
+}
+
+func TestRuleViews(t *testing.T) {
+	r := errorRule("FH-VIEW-001")
+	r.Views = []CameraView{ViewSide}
+	if errs := r.problems(); len(errs) > 0 {
+		t.Fatalf("vista válida rechazada: %v", errs)
+	}
+	for _, views := range [][]CameraView{{"top"}, {ViewFront, ViewFront}} {
+		r.Views = views
+		if errs := r.problems(); len(errs) == 0 {
+			t.Fatalf("vistas %v deberían ser inválidas", views)
+		}
+	}
+	out, err := json.Marshal(Rule{ID: "X", Views: []CameraView{ViewFront, ViewBack}})
+	if err != nil || !strings.Contains(string(out), `"views":["front","back"]`) {
+		t.Fatalf("views debe serializarse: %s %v", out, err)
+	}
+	if out, _ := json.Marshal(errorRule("Y")); strings.Contains(string(out), "views") {
+		t.Fatalf("sin vistas no se serializa el campo: %s", out)
 	}
 }

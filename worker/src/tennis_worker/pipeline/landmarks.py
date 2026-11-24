@@ -9,6 +9,7 @@ from tennis_worker.contracts import Handedness
 
 
 class Landmark(IntEnum):
+    NOSE = 0
     LEFT_SHOULDER = 11
     RIGHT_SHOULDER = 12
     LEFT_ELBOW = 13

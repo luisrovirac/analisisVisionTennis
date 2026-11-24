@@ -84,3 +84,11 @@ def test_artifact_round_trip_preserves_pose() -> None:
     assert restored.fps == pose.fps and restored.frame_count == pose.frame_count
     np.testing.assert_allclose(restored.world[pose.detected], pose.world[pose.detected], atol=1e-4)
     assert (restored.detected == pose.detected).all()
+
+
+def test_artifact_carries_frame_size_when_known() -> None:
+    pose = replace(make_pose(), frame_size=(1280, 720))
+    artifact = to_artifact(pose)
+    assert (artifact["width"], artifact["height"]) == (1280, 720)
+    assert from_artifact(artifact).frame_size == (1280, 720)
+    assert "width" not in to_artifact(make_pose())

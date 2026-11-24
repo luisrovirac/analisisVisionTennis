@@ -14,6 +14,8 @@ import (
 type Config struct {
 	UploadURLTTL   time.Duration
 	MaxUploadBytes int64
+	// MediaURLTTL es la vigencia de las URLs de lectura (video + pose); 0 = UploadURLTTL.
+	MediaURLTTL time.Duration
 }
 
 // Page es una página de un listado; NextCursor vacío indica que no hay más.
@@ -81,6 +83,44 @@ func (s *AnalysisService) Get(ctx context.Context, ownerID, id string) (domain.A
 		return domain.Analysis{}, domain.ErrNotFound
 	}
 	return s.repo.Get(ctx, ownerID, id)
+}
+
+// Media firma URLs de lectura del video y de la secuencia de pose de un análisis propio terminado.
+// Va aparte de Get porque Get se consulta en bucle mientras se procesa y no conviene firmar cada vez.
+func (s *AnalysisService) Media(ctx context.Context, ownerID, id string) (domain.MediaLinks, error) {
+	a, err := s.Get(ctx, ownerID, id)
+	if err != nil {
+		return domain.MediaLinks{}, err
+	}
+	return SignMedia(ctx, s.store, a, s.mediaTTL(), s.clock())
+}
+
+func (s *AnalysisService) mediaTTL() time.Duration {
+	if s.cfg.MediaURLTTL > 0 {
+		return s.cfg.MediaURLTTL
+	}
+	return s.cfg.UploadURLTTL
+}
+
+// MediaSigner es lo mínimo que hace falta para firmar los medios de un análisis.
+type MediaSigner interface {
+	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
+}
+
+// SignMedia es compartido por el jugador (sus análisis) y el portal de expertos (casos permitidos).
+func SignMedia(ctx context.Context, store MediaSigner, a domain.Analysis, ttl time.Duration, now time.Time) (domain.MediaLinks, error) {
+	if a.Status != domain.StatusCompleted {
+		return domain.MediaLinks{}, domain.ErrNotReady
+	}
+	video, err := store.PresignGet(ctx, a.VideoKey, ttl)
+	if err != nil {
+		return domain.MediaLinks{}, fmt.Errorf("firmar URL del video: %w", err)
+	}
+	pose, err := store.PresignGet(ctx, a.PoseKey(), ttl)
+	if err != nil {
+		return domain.MediaLinks{}, fmt.Errorf("firmar URL de la pose: %w", err)
+	}
+	return domain.MediaLinks{VideoURL: video, PoseURL: pose, ExpiresAt: now.Add(ttl)}, nil
 }
 
 // List pide un elemento de más para saber, sin otra consulta, si existe una página siguiente.

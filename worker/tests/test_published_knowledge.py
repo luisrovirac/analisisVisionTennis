@@ -117,6 +117,6 @@ def test_snapshot_fixture_is_what_the_worker_accepts() -> None:
 
     snapshot = json.loads((CONTRACTS_DIR / "fixtures" / "knowledge_base.example.json").read_text(encoding="utf-8"))
     source = FakeSource(StoredRelease("r1", snapshot))
-    assert repo(source, Clock()).load("forehand").label == SEED.label
+    assert repo(source, Clock()).load("forehand").label == f"forehand@{snapshot['version']}"
     catalog = json.loads((CONTRACTS_DIR / "fixtures" / "metric_catalog.example.json").read_text(encoding="utf-8"))
     assert {m["id"] for m in catalog if m["stroke"] == "forehand"} == default_registry().metric_ids("forehand")

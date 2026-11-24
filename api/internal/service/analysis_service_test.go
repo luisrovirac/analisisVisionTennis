@@ -115,6 +115,10 @@ func (s *fakeStore) PresignPut(_ context.Context, key string, _ time.Duration) (
 	return "http://storage/" + key, s.presignErr
 }
 
+func (s *fakeStore) PresignGet(_ context.Context, key string, _ time.Duration) (string, error) {
+	return "http://storage/get/" + key, s.presignErr
+}
+
 func (s *fakeStore) Stat(_ context.Context, _ string) (domain.ObjectInfo, error) {
 	return s.info, s.statErr
 }
@@ -380,5 +384,36 @@ func TestListPaginatesOwnAnalysesNewestFirst(t *testing.T) {
 	second, err := f.svc.List(context.Background(), alice, domain.ListQuery{After: &after, Limit: 2})
 	if err != nil || len(second.Items) != 1 || second.Items[0].ID != ids[0] || second.NextCursor != "" {
 		t.Fatalf("segunda página: %+v err=%v", second, err)
+	}
+}
+
+func TestMediaSignsVideoAndPoseForCompletedAnalysis(t *testing.T) {
+	f := newFixture()
+	f.createAnalysis(t)
+	a := f.repo.items[testID]
+	a.Status = domain.StatusCompleted
+	f.repo.items[testID] = a
+
+	m, err := f.svc.Media(context.Background(), alice, testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.VideoURL != "http://storage/get/videos/"+testID || m.PoseURL != "http://storage/get/poses/"+testID+".json" ||
+		!m.ExpiresAt.Equal(fixedNow.Add(15*time.Minute)) {
+		t.Fatalf("medios inesperados: %+v", m)
+	}
+}
+
+func TestMediaRequiresCompletedOwnAnalysis(t *testing.T) {
+	f := newFixture()
+	f.createAnalysis(t)
+	if _, err := f.svc.Media(context.Background(), alice, testID); !errors.Is(err, domain.ErrNotReady) {
+		t.Fatalf("pendiente: se esperaba ErrNotReady, got %v", err)
+	}
+	a := f.repo.items[testID]
+	a.Status = domain.StatusCompleted
+	f.repo.items[testID] = a
+	if _, err := f.svc.Media(context.Background(), bob, testID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("ajeno: se esperaba ErrNotFound, got %v", err)
 	}
 }

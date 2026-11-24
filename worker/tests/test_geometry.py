@@ -34,3 +34,11 @@ def test_speed_and_angular_speed() -> None:
     points = np.stack([np.arange(5.0), np.zeros(5), np.zeros(5)], axis=-1)  # 1 unidad por fotograma
     np.testing.assert_allclose(geometry.speed(points, fps=30), 30)
     np.testing.assert_allclose(geometry.angular_speed(-np.arange(5.0) * 2, fps=10), 20)
+
+
+def test_horizontal_yaw_keeps_nan_frames_local() -> None:
+    angles = np.radians([170.0, 179.0, np.nan, -179.0, -170.0])  # cruza ±180 con un hueco en medio
+    right = np.column_stack([np.cos(angles), np.zeros(5), np.sin(angles)])
+    yaw = geometry.horizontal_yaw(np.zeros((5, 3)), right)
+    assert np.isnan(yaw[2]) and np.isfinite(np.delete(yaw, 2)).all()
+    assert np.allclose(np.delete(yaw, 2), [170.0, 179.0, 181.0, 190.0])

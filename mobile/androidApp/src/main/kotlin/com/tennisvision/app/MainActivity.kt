@@ -7,15 +7,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -41,8 +45,13 @@ import com.tennisvision.shared.AnalysisProgress
 import com.tennisvision.shared.model.Analysis
 import com.tennisvision.shared.model.AnalysisSummary
 import com.tennisvision.shared.model.Handedness
+import com.tennisvision.shared.model.ReferenceComparison
+import com.tennisvision.shared.skeleton.Skeleton
+import kotlin.math.roundToInt
 
-private val STROKES = listOf(null to "Detectar", "forehand" to "Forehand")
+private val STROKES = listOf(
+    null to "Detectar", "forehand" to "Forehand", "backhand" to "Revés", "serve" to "Saque", "volley" to "Volea",
+)
 private val HANDS = listOf(Handedness.RIGHT to "Diestro", Handedness.LEFT to "Zurdo")
 
 class MainActivity : ComponentActivity() {
@@ -102,7 +111,11 @@ private fun AnalyzeScreen(state: UiState, viewModel: AnalysisViewModel) {
         Button(enabled = !state.busy, onClick = { picker.launch("video/*") }) { Text("Elegir video y analizar") }
         TextButton(onClick = viewModel::logout) { Text("Cerrar sesión") }
     }
-    state.progress?.let { Progress(it) }
+    // El informe con el video puede ser largo: se desplaza en su propia zona y el historial sigue visible.
+    state.progress?.let {
+        Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) { Progress(it, state.media) }
+    }
     Text("Mis análisis", style = MaterialTheme.typography.titleMedium)
     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         items(state.history, key = AnalysisSummary::id) { item ->
@@ -116,7 +129,7 @@ private fun AnalyzeScreen(state: UiState, viewModel: AnalysisViewModel) {
 
 @Composable
 private fun <T> ChipRow(options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { (value, label) ->
             FilterChip(selected = selected == value, onClick = { onSelect(value) }, label = { Text(label) })
         }
@@ -149,7 +162,7 @@ private fun ConfirmDeleteDialog(item: AnalysisSummary, onConfirm: () -> Unit, on
 }
 
 @Composable
-private fun Progress(progress: AnalysisProgress) {
+private fun Progress(progress: AnalysisProgress, media: MediaState?) {
     when (progress) {
         AnalysisProgress.Creating -> Text("Preparando la subida…")
         is AnalysisProgress.Uploading -> {
@@ -161,15 +174,28 @@ private fun Progress(progress: AnalysisProgress) {
             LinearProgressIndicator(Modifier.fillMaxWidth())
         }
         is AnalysisProgress.Failed -> Text(progress.message, color = MaterialTheme.colorScheme.error)
-        is AnalysisProgress.Completed -> Report(progress.analysis)
+        is AnalysisProgress.Completed -> Report(progress.analysis, media)
     }
 }
 
 @Composable
-private fun Report(analysis: Analysis) {
+private fun Report(analysis: Analysis, media: MediaState?) {
     val report = analysis.report ?: return
+    var focus by remember(analysis.id) { mutableStateOf<SkeletonFocus?>(null) }
+    val impact = report.segment?.impactFrame ?: 0
+    fun show(evidence: Map<String, Double>, strength: Boolean) {
+        focus = SkeletonFocus(impact, Skeleton.landmarksFor(report, evidence.keys), strength, System.nanoTime())
+    }
+    val canShow = media is MediaState.Ready
     report.quality.warnings.forEach { Text("⚠ $it") }
+    when (media) {
+        MediaState.Loading -> Text("Cargando video y esqueleto…", style = MaterialTheme.typography.labelMedium)
+        is MediaState.Unavailable -> Text("No pudimos cargar el video: ${media.message}", style = MaterialTheme.typography.labelMedium)
+        is MediaState.Ready -> SkeletonPlayer(media.videoUrl, media.pose, report.segment, focus)
+        null -> Unit
+    }
     report.diagnosis?.let { Text(it.summary, style = MaterialTheme.typography.bodyLarge) }
+    report.referenceComparison?.let { ReferenceCard(it) }
     if (report.strengths.isNotEmpty()) Text("Lo que haces bien", style = MaterialTheme.typography.titleMedium)
     report.strengths.forEach { strength ->
         Card(Modifier.fillMaxWidth()) {
@@ -177,6 +203,7 @@ private fun Report(analysis: Analysis) {
                 Text(strength.title, style = MaterialTheme.typography.titleSmall)
                 Text(strength.whyItMatters)
                 if (strength.howToMaintain.isNotBlank()) Text("Cómo aprovecharlo: ${strength.howToMaintain}")
+                if (canShow) TextButton(onClick = { show(strength.evidence, strength = true) }) { Text("Ver en el video") }
             }
         }
     }
@@ -188,6 +215,7 @@ private fun Report(analysis: Analysis) {
                 finding.validated?.let { Text(if (it) "Regla validada" else "Regla provisional", style = MaterialTheme.typography.labelSmall) }
                 Text(finding.explanation)
                 Text("Corrección: ${finding.correction}")
+                if (canShow) TextButton(onClick = { show(finding.evidence, strength = false) }) { Text("Ver en el video") }
             }
         }
     }
@@ -198,6 +226,37 @@ private fun Report(analysis: Analysis) {
     }
     report.reliability?.let { Text("Fiabilidad del informe: ${RELIABILITY[it.level] ?: it.level}", style = MaterialTheme.typography.labelMedium) }
     Text("Recomendaciones de entrenamiento, no diagnóstico médico.", style = MaterialTheme.typography.labelSmall)
+}
+
+private val PHASES = mapOf("preparation" to "Preparación", "acceleration" to "Aceleración", "follow_through" to "Terminación")
+private val PHASE_STATUS = mapOf("low_confidence" to "no se vio con suficiente seguridad", "too_short" to "demasiado corta para comparar")
+
+/** Comparación informativa con un golpe de referencia: sin puntaje si no hay referencia o no se vio bien. */
+@Composable
+private fun ReferenceCard(rc: ReferenceComparison) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Similitud con un golpe de referencia", style = MaterialTheme.typography.titleSmall)
+            val overall = rc.overallSimilarity
+            if (overall == null) {
+                Text(rc.note.ifBlank { "No se pudo comparar este golpe." })
+                return@Column
+            }
+            val ref = rc.referencesUsed.firstOrNull()?.let { " frente a «${it.label}»" }.orEmpty()
+            Text("${overall.roundToInt()} / 100$ref", style = MaterialTheme.typography.bodyLarge)
+            rc.phases.forEach { p ->
+                val label = PHASES[p.phase] ?: p.phase
+                val similarity = p.similarity
+                if (similarity == null) {
+                    Text("$label: ${PHASE_STATUS[p.status] ?: p.status}.", style = MaterialTheme.typography.labelMedium)
+                } else {
+                    Text("$label: ${similarity.roundToInt()}", style = MaterialTheme.typography.labelMedium)
+                    LinearProgressIndicator(progress = { (similarity / 100).toFloat() }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+            if (rc.note.isNotBlank()) Text(rc.note, style = MaterialTheme.typography.labelSmall)
+        }
+    }
 }
 
 private val RELIABILITY = mapOf("high" to "alta", "medium" to "media", "low" to "baja")

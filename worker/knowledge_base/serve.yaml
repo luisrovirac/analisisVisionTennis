@@ -1,0 +1,293 @@
+# Base de conocimiento del SAQUE (semilla).
+# Estructura basada en las fases del saque (posición de trofeo, empuje de piernas, impacto alto con el
+# brazo extendido). La "posición de trofeo" se detecta como el punto más alto del brazo de lanzamiento.
+# ⚠ Umbrales PROVISIONALES estimados para pose 2D desde video. El worker importa este archivo a Postgres
+#   la primera vez; a partir de ahí los cambios se hacen en el portal (experto propone, validador aprueba).
+# Guía: Docs/BASE_CONOCIMIENTO.md · Esquema: contracts/knowledge_base.schema.json
+stroke: serve
+version: 0.1.2
+validated_by: null
+
+rules:
+  # ---------- Errores fundamentales ----------
+  - id: SV-POST-001
+    title: Piernas rígidas en la posición de trofeo
+    category: fundamental
+    impact: 4
+    difficulty: 2
+    when:
+      all:
+        - {metric: knee_angle_min, op: gt, value: 160}
+    explanation: >
+      No flexionas las rodillas antes de golpear. En el saque las piernas son el motor: sin flexión
+      no hay impulso hacia arriba y todo el trabajo lo hacen el hombro y el brazo.
+    correction: >
+      Mientras lanzas la bola, flexiona las rodillas (como cargando un muelle) y empuja hacia arriba
+      para ir a buscar la bola.
+    drills:
+      - "Sombra del saque con pausa en la posición de trofeo comprobando la flexión de rodillas."
+      - "Saltos verticales desde la posición de trofeo sin raqueta (3 x 8)."
+    references:
+      - "Kovacs M, Ellenbecker T. An 8-stage model for evaluating the tennis serve. Sports Health. 2011;3(6):504-513."
+
+  - id: SV-TOSS-001
+    title: Brazo de lanzamiento bajo o que cae pronto
+    category: fundamental
+    impact: 4
+    difficulty: 2
+    when:
+      all:
+        - {metric: toss_arm_height, op: lt, value: 0.25}
+    explanation: >
+      En la posición de trofeo el brazo de lanzamiento no llega a estar estirado por encima de la
+      cabeza. Suele indicar un lanzamiento bajo o que el brazo se baja antes de tiempo, lo que
+      desequilibra el giro de hombros.
+    correction: >
+      Lanza la bola con el brazo estirado y déjalo arriba, señalando la bola, hasta que el brazo de
+      golpeo empiece a subir.
+    drills:
+      - "Lanzamientos sin golpear: deja que la bola caiga sobre la raqueta colocada en el suelo delante."
+      - "Lanza y mantén el brazo arriba 1 s antes de recoger la bola."
+
+  - id: SV-TILT-001
+    title: Hombros horizontales en la posición de trofeo
+    category: fundamental
+    impact: 4
+    difficulty: 3
+    views: [front, back]
+    when:
+      all:
+        - {metric: shoulder_tilt_at_trophy, op: lt, value: 8}
+    explanation: >
+      En la posición de trofeo la línea de hombros está casi horizontal. Sin la inclinación "hombro
+      sobre hombro" (el de golpeo más bajo) el brazo no puede subir de abajo arriba hacia la bola.
+    correction: >
+      Al lanzar, deja que el hombro del brazo de lanzamiento suba y el de golpeo baje, como si
+      apuntaras a la bola con la línea de los hombros.
+    drills:
+      - "Sombra con una raqueta apoyada sobre los hombros: inclínala hacia arriba al lanzar."
+    references:
+      - "Kovacs M, Ellenbecker T. An 8-stage model for evaluating the tennis serve. Sports Health. 2011;3(6):504-513."
+
+  - id: SV-TROPHY-001
+    title: Codo de golpeo mal colocado en la posición de trofeo
+    category: fundamental
+    impact: 3
+    difficulty: 3
+    when:
+      any:
+        - {metric: trophy_elbow_angle, op: lt, value: 70}
+        - {metric: trophy_elbow_angle, op: gt, value: 130}
+    explanation: >
+      En la posición de trofeo el codo del brazo de golpeo está demasiado cerrado o demasiado
+      estirado. Lo habitual es un ángulo cercano a 90°, con el codo a la altura del hombro o algo más
+      alto, para que la raqueta pueda caer detrás de la espalda.
+    correction: >
+      Sube el brazo de golpeo con el codo flexionado cerca de 90° ("posición de trofeo") y desde ahí
+      deja caer la raqueta detrás de la espalda.
+    drills:
+      - "Sombra con pausa en la posición de trofeo frente a un espejo, comprobando el ángulo del codo."
+
+  - id: SV-CONT-001
+    title: Impacto bajo
+    category: fundamental
+    impact: 5
+    difficulty: 2
+    caused_by: [SV-ARM-001, SV-POST-001, SV-LEG-001]
+    when:
+      all:
+        - {metric: contact_height, op: lt, value: 0.35}
+    explanation: >
+      Golpeas la bola poco por encima de la cabeza. Un impacto bajo reduce el ángulo para pasar la red
+      y meter la bola en el cuadro de saque.
+    correction: >
+      Lanza la bola algo más alta y ve a buscarla con el brazo estirado y empujando con las piernas.
+    drills:
+      - "Saques golpeando la bola en el punto más alto que alcances con la raqueta estirada."
+
+  - id: SV-ARM-001
+    title: Brazo flexionado en el impacto
+    category: fundamental
+    impact: 4
+    difficulty: 3
+    when:
+      all:
+        - {metric: elbow_angle_at_impact, op: lt, value: 145}
+    explanation: >
+      El codo del brazo de golpeo no se extiende en el impacto: pierdes altura y velocidad de raqueta.
+    correction: >
+      Golpea con el brazo casi estirado, en el punto más alto, extendiendo el codo hacia la bola.
+    drills:
+      - "Saques desde rodillas: obliga a extender el brazo para pasar la red."
+
+  # ---------- Errores de sincronización ----------
+  - id: SV-LEG-001
+    title: Sin empuje de piernas hacia la bola
+    category: sincronizacion
+    impact: 4
+    difficulty: 3
+    when:
+      all:
+        - {metric: leg_drive, op: lt, value: 15}
+    explanation: >
+      Las rodillas no se extienden con fuerza entre la flexión y el impacto: el saque sale "de brazo".
+    correction: >
+      Tras la flexión en la posición de trofeo, empuja el suelo con fuerza hacia arriba para iniciar el
+      movimiento hacia la bola.
+    drills:
+      - "Saques despegando los pies del suelo en el impacto."
+
+  - id: SV-ROT-001
+    title: Poco giro de hombros
+    category: sincronizacion
+    impact: 4
+    difficulty: 3
+    when:
+      all:
+        - {metric: shoulder_rotation_range, op: lt, value: 40}
+    explanation: >
+      Los hombros giran poco entre la preparación y el impacto: el saque no aprovecha la rotación del
+      tronco.
+    correction: >
+      Gira los hombros hacia atrás al lanzar (la espalda casi mirando a la red contraria) y suéltalos
+      hacia delante al golpear.
+    drills:
+      - "Sombra del saque empezando de perfil con los hombros girados hacia la valla del fondo."
+
+  - id: SV-SYNC-001
+    title: Cadena cinética desordenada
+    category: sincronizacion
+    impact: 5
+    difficulty: 5
+    when:
+      all:
+        - {metric: kinetic_chain_sequence, op: eq, value: 0}
+    explanation: >
+      Piernas, cadera, hombros y brazo no alcanzan su máxima velocidad en orden. En el saque la
+      energía debe subir desde el suelo hasta la raqueta.
+    correction: >
+      Trabaja el saque a velocidad lenta: piernas, cadera, tronco y por último brazo.
+    drills:
+      - "Lanzamientos de balón medicinal por encima de la cabeza empezando con las piernas."
+
+  - id: SV-SYNC-002
+    title: Cadera y hombros giran en bloque
+    category: sincronizacion
+    impact: 3
+    difficulty: 4
+    when:
+      all:
+        - {metric: hip_shoulder_separation_max, op: lt, value: 15}
+    explanation: >
+      Cadera y hombros giran a la vez, sin torsión entre ellos.
+    correction: >
+      Deja que la cadera inicie el giro hacia delante mientras los hombros siguen girados atrás.
+    drills:
+      - "Sombra en dos tiempos: 1) cadera hacia la pista, 2) hombros y brazo."
+
+  # ---------- Puntos fuertes ----------
+  - id: SV-STR-001
+    title: Buena flexión de piernas
+    category: fundamental
+    polarity: strength
+    impact: 4
+    difficulty: 2
+    when:
+      all:
+        - {metric: knee_angle_min, op: between, value: [100, 145]}
+    explanation: Flexionas bien las rodillas antes de ir a por la bola.
+    why_it_matters: >
+      Las piernas son el motor del saque: aportan potencia y protegen el hombro.
+    how_to_maintain: >
+      Mantén esa flexión en cada saque, también en el segundo.
+
+  - id: SV-STR-002
+    title: Empuje de piernas potente
+    category: sincronizacion
+    polarity: strength
+    impact: 4
+    difficulty: 3
+    when:
+      all:
+        - {metric: leg_drive, op: gte, value: 35}
+    explanation: Extiendes las rodillas con fuerza hacia el impacto.
+    why_it_matters: >
+      El impulso desde el suelo sube por la cadena cinética hasta la raqueta.
+    how_to_maintain: >
+      Sigue empujando hacia arriba, hacia la bola, no hacia delante.
+
+  - id: SV-STR-003
+    title: Posición de trofeo sólida
+    category: fundamental
+    polarity: strength
+    impact: 3
+    difficulty: 3
+    when:
+      all:
+        - {metric: trophy_elbow_angle, op: between, value: [80, 110]}
+    explanation: El codo de golpeo está cerca de 90° en la posición de trofeo.
+    why_it_matters: >
+      Es la posición desde la que la raqueta cae detrás de la espalda y acelera hacia la bola.
+    how_to_maintain: >
+      Repite esa posición en cada saque; es tu referencia.
+
+  - id: SV-STR-004
+    title: Hombro sobre hombro
+    category: fundamental
+    polarity: strength
+    impact: 4
+    difficulty: 3
+    views: [front, back]
+    when:
+      all:
+        - {metric: shoulder_tilt_at_trophy, op: gte, value: 20}
+    explanation: El hombro de golpeo está claramente más bajo en la posición de trofeo.
+    why_it_matters: >
+      Esa inclinación permite subir el brazo de abajo hacia arriba y golpear alto.
+    how_to_maintain: >
+      Mantén el brazo de lanzamiento arriba para conservar la inclinación.
+
+  - id: SV-STR-005
+    title: Impacto alto
+    category: fundamental
+    polarity: strength
+    impact: 5
+    difficulty: 2
+    when:
+      all:
+        - {metric: contact_height, op: gte, value: 0.5}
+    explanation: Golpeas la bola muy por encima de la cabeza.
+    why_it_matters: >
+      Un impacto alto da más ángulo para meter la bola con potencia en el cuadro.
+    how_to_maintain: >
+      Sigue lanzando a esa altura y yendo a buscar la bola.
+
+  - id: SV-STR-006
+    title: Brazo extendido en el impacto
+    category: fundamental
+    polarity: strength
+    impact: 4
+    difficulty: 3
+    when:
+      all:
+        - {metric: elbow_angle_at_impact, op: gte, value: 160}
+    explanation: Golpeas con el brazo casi estirado.
+    why_it_matters: >
+      Máxima altura de impacto y velocidad de raqueta.
+    how_to_maintain: >
+      Mantén el impacto en el punto más alto del recorrido.
+
+  - id: SV-STR-007
+    title: Cadena cinética bien secuenciada
+    category: sincronizacion
+    polarity: strength
+    impact: 5
+    difficulty: 5
+    when:
+      all:
+        - {metric: kinetic_chain_sequence, op: eq, value: 1}
+    explanation: Cadera, hombros y brazo alcanzan su máxima velocidad en el orden eficiente.
+    why_it_matters: >
+      Más velocidad de saque con menos carga en el hombro.
+    how_to_maintain: >
+      Mantén ese ritmo también en el segundo saque.

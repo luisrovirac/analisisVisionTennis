@@ -21,6 +21,7 @@ type AnalysisUseCases interface {
 	List(ctx context.Context, ownerID string, q domain.ListQuery) (service.Page, error)
 	Delete(ctx context.Context, ownerID, id string) error
 	SetExpertReview(ctx context.Context, ownerID, id string, allowed bool) (domain.Analysis, error)
+	Media(ctx context.Context, ownerID, id string) (domain.MediaLinks, error)
 }
 
 type analysisHandler struct {
@@ -58,6 +59,16 @@ func (h *analysisHandler) get(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, toAnalysisResponse(a))
+}
+
+// media devuelve URLs firmadas para reproducir el video con el esqueleto superpuesto.
+func (h *analysisHandler) media(c *gin.Context) {
+	m, err := h.svc.Media(c.Request.Context(), ownerID(c), c.Param("id"))
+	if err != nil {
+		writeError(c, h.logger, err)
+		return
+	}
+	c.JSON(http.StatusOK, toMediaResponse(m))
 }
 
 func (h *analysisHandler) remove(c *gin.Context) {

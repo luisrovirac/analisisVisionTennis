@@ -1,0 +1,241 @@
+# Base de conocimiento de la VOLEA (semilla).
+# La volea es un golpe de bloqueo: armado corto, impacto por delante y terminación corta.
+# ⚠ Umbrales PROVISIONALES estimados para pose 2D desde video. El worker importa este archivo a Postgres
+#   la primera vez; a partir de ahí los cambios se hacen en el portal (experto propone, validador aprueba).
+# Guía: Docs/BASE_CONOCIMIENTO.md · Esquema: contracts/knowledge_base.schema.json
+stroke: volley
+version: 0.1.2
+validated_by: null
+
+rules:
+  # ---------- Errores fundamentales ----------
+  - id: VL-SWING-001
+    title: Armado demasiado largo
+    category: fundamental
+    impact: 5
+    difficulty: 2
+    views: [side]
+    when:
+      all:
+        - {metric: backswing_wrist_travel, op: gt, value: 0.6}
+    explanation: >
+      Llevas la raqueta muy atrás antes de golpear, como en un golpe de fondo. En la red no hay tiempo
+      para un armado largo: llegas tarde y pierdes control.
+    correction: >
+      Prepara con un giro corto de hombros y la raqueta delante del cuerpo, siempre dentro de tu campo
+      visual. La volea se "bloquea", no se golpea.
+    drills:
+      - "Voleas con la espalda pegada a una valla o pared: impide el armado largo."
+      - "Voleas a corta distancia del compañero (3–4 m) con bolas suaves."
+
+  - id: VL-FIN-001
+    title: Terminación demasiado larga
+    category: fundamental
+    impact: 4
+    difficulty: 2
+    views: [side]
+    when:
+      all:
+        - {metric: follow_through_length, op: gt, value: 0.6}
+    explanation: >
+      Tras el impacto la raqueta sigue un recorrido largo. En la volea eso resta control y te deja
+      desprotegido para la siguiente bola.
+    correction: >
+      Detén la raqueta poco después del impacto, con un movimiento corto hacia delante y algo hacia
+      abajo, y recupera la posición de espera.
+    drills:
+      - "Voleas 'congelando' la raqueta en el punto final durante 1 s."
+
+  - id: VL-CONT-001
+    title: Impacto atrasado
+    category: fundamental
+    impact: 5
+    difficulty: 2
+    views: [side]
+    caused_by: [VL-SWING-001]
+    when:
+      all:
+        - {metric: contact_point_ahead, op: lt, value: 0.2}
+    explanation: >
+      Golpeas la bola a la altura del cuerpo o por detrás. En la volea el impacto debe estar claramente
+      por delante.
+    correction: >
+      Sal a buscar la bola con la raqueta por delante y un paso hacia ella con el pie contrario.
+    drills:
+      - "Voleas dando un paso adelante con el pie contrario en cada impacto."
+
+  - id: VL-POST-001
+    title: Piernas rígidas
+    category: fundamental
+    impact: 4
+    difficulty: 1
+    when:
+      all:
+        - {metric: knee_angle_min, op: gt, value: 155}
+    explanation: >
+      No flexionas las rodillas. En la red las bolas suelen venir bajas y sin flexión acabas bajando la
+      raqueta en vez del cuerpo.
+    correction: >
+      Flexiona las rodillas para bajar a la altura de la bola, manteniendo la raqueta alta.
+    drills:
+      - "Voleas bajas con un compañero lanzando a la altura de las rodillas."
+
+  - id: VL-BASE-001
+    title: Base demasiado estrecha
+    category: fundamental
+    impact: 3
+    difficulty: 1
+    views: [front, back]
+    when:
+      all:
+        - {metric: stance_width_ratio, op: lt, value: 0.9}
+    explanation: >
+      Tus pies están más juntos que la anchura de tus hombros al volear: pierdes estabilidad.
+    correction: >
+      Mantén una base amplia en la posición de espera y da el paso hacia la bola desde ahí.
+    drills:
+      - "Posición de espera con pies algo más abiertos que los hombros y split step antes de cada bola."
+
+  - id: VL-HEAD-001
+    title: La cabeza se mueve en el impacto
+    category: fundamental
+    impact: 3
+    difficulty: 2
+    when:
+      all:
+        - {metric: head_stability, op: gt, value: 0.25}
+    explanation: >
+      La cabeza se desplaza al volear: con bolas rápidas, cualquier movimiento del eje hace fallar el
+      impacto.
+    correction: >
+      Mantén la cabeza quieta y los ojos a la altura de la bola en el impacto.
+    drills:
+      - "Voleas manteniendo la vista en el punto de impacto hasta después de golpear."
+
+  - id: VL-ARM-001
+    title: Brazo muy encogido en el impacto
+    category: fundamental
+    impact: 3
+    difficulty: 2
+    when:
+      all:
+        - {metric: elbow_angle_at_impact, op: lt, value: 100}
+    explanation: >
+      El codo llega muy flexionado al impacto: suele indicar que la bola se te echa encima porque no
+      la sales a buscar.
+    correction: >
+      Sal a buscar la bola por delante del cuerpo, con el brazo cómodo y algo extendido.
+    drills:
+      - "Voleas con una pelota bajo la axila del brazo de golpeo."
+
+  # ---------- Errores de sincronización ----------
+  - id: VL-ROT-001
+    title: Demasiado giro de hombros
+    category: sincronizacion
+    impact: 4
+    difficulty: 2
+    when:
+      all:
+        - {metric: shoulder_rotation_range, op: gt, value: 60}
+    explanation: >
+      Giras los hombros como en un golpe de fondo. En la volea basta un giro corto: el exceso de giro
+      alarga el swing y retrasa el impacto.
+    correction: >
+      Gira solo lo justo para colocar la raqueta de lado (un cuarto de giro) y bloquea la bola.
+    drills:
+      - "Voleas con la raqueta sujeta también con la mano libre en la garganta, soltándola solo en el impacto."
+
+  # ---------- Puntos fuertes ----------
+  - id: VL-STR-001
+    title: Armado compacto
+    category: fundamental
+    polarity: strength
+    impact: 5
+    difficulty: 2
+    views: [side]
+    when:
+      all:
+        - {metric: backswing_wrist_travel, op: lte, value: 0.35}
+    explanation: Preparas la volea con un armado corto.
+    why_it_matters: >
+      Te da tiempo de reacción y control en la red.
+    how_to_maintain: >
+      Mantén la raqueta delante del cuerpo y dentro de tu campo visual.
+
+  - id: VL-STR-002
+    title: Terminación corta y controlada
+    category: fundamental
+    polarity: strength
+    impact: 4
+    difficulty: 2
+    views: [side]
+    when:
+      all:
+        - {metric: follow_through_length, op: lte, value: 0.35}
+    explanation: Detienes la raqueta poco después del impacto.
+    why_it_matters: >
+      Controlas la dirección y recuperas antes la posición de espera.
+    how_to_maintain: >
+      Sigue "bloqueando" la bola en vez de golpearla.
+
+  - id: VL-STR-003
+    title: Impacto por delante del cuerpo
+    category: fundamental
+    polarity: strength
+    impact: 5
+    difficulty: 2
+    views: [side]
+    when:
+      all:
+        - {metric: contact_point_ahead, op: gte, value: 0.3}
+    explanation: Voleas la bola claramente por delante del cuerpo.
+    why_it_matters: >
+      Control de la dirección y un impacto firme con muy poco swing.
+    how_to_maintain: >
+      Sigue saliendo a buscar la bola con un paso hacia delante.
+
+  - id: VL-STR-004
+    title: Buena flexión de piernas
+    category: fundamental
+    polarity: strength
+    impact: 4
+    difficulty: 1
+    when:
+      all:
+        - {metric: knee_angle_min, op: between, value: [110, 150]}
+    explanation: Bajas con las piernas a la altura de la bola.
+    why_it_matters: >
+      Mantienes la raqueta alta y firme también con bolas bajas.
+    how_to_maintain: >
+      Repite esa flexión en cada volea.
+
+  - id: VL-STR-005
+    title: Cabeza quieta en el impacto
+    category: fundamental
+    polarity: strength
+    impact: 3
+    difficulty: 2
+    when:
+      all:
+        - {metric: head_stability, op: lte, value: 0.1}
+    explanation: Mantienes la cabeza estable al volear.
+    why_it_matters: >
+      Con bolas rápidas, un eje estable hace el impacto más preciso.
+    how_to_maintain: >
+      Sigue mirando la bola hasta el impacto.
+
+  - id: VL-STR-006
+    title: Base amplia y estable
+    category: fundamental
+    polarity: strength
+    impact: 3
+    difficulty: 1
+    views: [front, back]
+    when:
+      all:
+        - {metric: stance_width_ratio, op: between, value: [1.2, 2.2]}
+    explanation: Tus pies están bien separados al volear.
+    why_it_matters: >
+      Estabilidad para bloquear bolas rápidas y para moverte hacia la siguiente.
+    how_to_maintain: >
+      Mantén la base amplia en la posición de espera.

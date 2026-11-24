@@ -91,6 +91,71 @@ data class Report(
     @SerialName("drill_plan") val drillPlan: DrillPlan? = null,
     val reliability: Reliability? = null,
     @SerialName("knowledge_status") val knowledgeStatus: KnowledgeStatus? = null,
+    /** Fotogramas de las fases del golpe: el visor de esqueleto salta a ellos. */
+    val segment: Segment? = null,
+    // Revisión 1.2 (aditiva): comparación informativa con golpes de referencia (DTW).
+    @SerialName("reference_comparison") val referenceComparison: ReferenceComparison? = null,
+)
+
+@Serializable
+data class Segment(
+    val fps: Double,
+    @SerialName("start_frame") val startFrame: Int,
+    @SerialName("backswing_frame") val backswingFrame: Int,
+    @SerialName("impact_frame") val impactFrame: Int,
+    @SerialName("end_frame") val endFrame: Int,
+)
+
+@Serializable
+data class ReferenceComparison(
+    /** ok | partial | low_confidence | no_references */
+    val status: String,
+    @SerialName("references_used") val referencesUsed: List<ReferenceUsed> = emptyList(),
+    @SerialName("overall_similarity") val overallSimilarity: Double? = null,
+    val phases: List<PhaseSimilarity> = emptyList(),
+    val note: String = "",
+)
+
+@Serializable
+data class ReferenceUsed(@SerialName("ref_id") val refId: String, val label: String)
+
+@Serializable
+data class PhaseSimilarity(
+    /** preparation | acceleration | follow_through */
+    val phase: String,
+    /** ok | low_confidence | too_short */
+    val status: String,
+    val similarity: Double? = null,
+    val confidence: Double = 0.0,
+)
+
+/** GET /v1/analyses/{id}/media: URLs firmadas de solo lectura (caducan en expires_at). */
+@Serializable
+data class MediaLinks(
+    @SerialName("video_url") val videoUrl: String,
+    @SerialName("pose_url") val poseUrl: String,
+    @SerialName("expires_at") val expiresAt: String,
+)
+
+/**
+ * contracts/pose_sequence.schema.json. Solo se leen las coordenadas de imagen y la visibilidad: las
+ * coordenadas world (metros) no hacen falta para dibujar y se ignoran al deserializar.
+ */
+@Serializable
+data class PoseSequence(
+    val fps: Double,
+    val width: Int? = null,
+    val height: Int? = null,
+    val frames: List<PoseFrame> = emptyList(),
+)
+
+@Serializable
+data class PoseFrame(
+    val index: Int,
+    val detected: Boolean,
+    /** 33 puntos [x, y, z] normalizados a la imagen (índices MediaPipe Pose). */
+    val image: List<List<Double>>,
+    val visibility: List<Double>,
 )
 
 @Serializable
@@ -101,6 +166,7 @@ data class Strength(
     @SerialName("why_it_matters") val whyItMatters: String,
     @SerialName("how_to_maintain") val howToMaintain: String = "",
     val confidence: Double = 1.0,
+    val evidence: Map<String, Double> = emptyMap(),
 )
 
 @Serializable
@@ -138,7 +204,15 @@ data class KnowledgeStatus(
 )
 
 @Serializable
-data class MetricValue(val id: String, val label: String, val value: Double, val unit: String, val confidence: Double)
+data class MetricValue(
+    val id: String,
+    val label: String,
+    val value: Double,
+    val unit: String,
+    val confidence: Double,
+    /** 1.2: índices MediaPipe de los landmarks en los que se apoya la métrica (null en reportes antiguos). */
+    val landmarks: List<Int>? = null,
+)
 
 @Serializable
 data class Finding(
@@ -151,6 +225,8 @@ data class Finding(
     val drills: List<String> = emptyList(),
     /** 1.1: null en reportes antiguos; true = regla validada por el equipo de expertos. */
     val validated: Boolean? = null,
+    /** Valores de las métricas que dispararon la regla (métrica → valor). */
+    val evidence: Map<String, Double> = emptyMap(),
 )
 
 @Serializable

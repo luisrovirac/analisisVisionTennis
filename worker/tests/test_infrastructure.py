@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 import redis
+from botocore.exceptions import ClientError
 
 from tennis_worker.config import Settings
 from tennis_worker.infrastructure.redis_consumer import QueuedJob, RedisJobConsumer
@@ -145,6 +147,29 @@ def test_s3_store_delegates_to_client(tmp_path: Path) -> None:
     assert put["Key"] == "poses/1.json" and json.loads(put["Body"]) == {"a": 1}
 
 
+class FakeS3Reader:
+    def __init__(self, objects: dict[str, bytes], error: str = "NoSuchKey") -> None:
+        self.objects = objects
+        self.error = error
+
+    def get_object(self, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803 (firma de boto3)
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": self.error, "Message": "x"}}, "GetObject")
+        return {"Body": io.BytesIO(self.objects[Key])}
+
+
+def test_s3_get_json_reads_and_treats_missing_as_none() -> None:
+    store = S3ObjectStore(FakeS3Reader({"references/index.json": b'{"references": []}'}), "b")  # type: ignore[arg-type]
+    assert store.get_json("references/index.json") == {"references": []}
+    assert store.get_json("references/otro.json") is None
+
+
+def test_s3_get_json_propagates_other_errors() -> None:
+    store = S3ObjectStore(FakeS3Reader({}, error="AccessDenied"), "b")  # type: ignore[arg-type]
+    with pytest.raises(ClientError):
+        store.get_json("references/index.json")
+
+
 # --- config ---
 
 
@@ -174,3 +199,20 @@ def test_settings_fail_fast_on_missing_model(tmp_path: Path, monkeypatch: pytest
         monkeypatch.setenv(k, v)
     with pytest.raises(ValueError, match="no existe"):
         Settings()  # type: ignore[call-arg]
+
+
+def test_settings_robustness_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for k, v in base_env(tmp_path).items():
+        monkeypatch.setenv(k, v)
+    settings = Settings()  # type: ignore[call-arg]
+    assert settings.pose_estimator == "mediapipe" and settings.impact_from_audio
+    assert settings.pose_smoothing_seconds == 0.1 and settings.metric_sensitivity_check
+
+
+def test_motionbert_estimator_requires_a_model_version(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    for k, v in (base_env(tmp_path) | {"POSE_ESTIMATOR": "rtmpose_motionbert"}).items():
+        monkeypatch.setenv(k, v)
+    with pytest.raises(ValueError, match="MOTIONBERT_MODEL_VERSION"):
+        Settings()  # type: ignore[call-arg]
+    monkeypatch.setenv("MOTIONBERT_MODEL_VERSION", "mb-test")
+    assert Settings().motionbert_model_version == "mb-test"  # type: ignore[call-arg]

@@ -34,5 +34,6 @@ def _to_finding(item: FiredRule, rank: int) -> Finding:
     return Finding(
         rule_id=rule.id, rank=rank, category=rule.category, title=rule.title,
         explanation=rule.explanation, correction=rule.correction,
-        drills=list(rule.drills), evidence=item.evidence, validated=rule.validated,
+        drills=list(rule.drills), evidence=item.evidence, validated=rule.is_validated,
+        validation_status=rule.status,
     )

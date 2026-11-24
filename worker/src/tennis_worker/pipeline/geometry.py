@@ -18,9 +18,19 @@ def joint_angle(a: FloatArray, b: FloatArray, c: FloatArray) -> FloatArray:
 
 
 def horizontal_yaw(left: FloatArray, right: FloatArray) -> FloatArray:
-    """Orientación (grados, sin saltos de ±180) de la línea izquierda→derecha en el plano horizontal x-z."""
+    """Orientación (grados, sin saltos de ±180) de la línea izquierda→derecha en el plano horizontal x-z.
+
+    Los fotogramas sin pose (NaN) quedan en NaN sin contaminar al resto: `np.unwrap` acumula diferencias y un
+    solo NaN volvería NaN toda la serie posterior (pasa con poses leídas de un artefacto, ver from_artifact)."""
     d = right - left
-    return np.degrees(np.unwrap(np.arctan2(d[..., 2], d[..., 0])))
+    angle = np.arctan2(d[..., 2], d[..., 0])
+    finite = np.isfinite(angle)
+    if angle.ndim != 1 or finite.all():
+        return np.degrees(np.unwrap(angle))
+    out: FloatArray = np.full_like(angle, np.nan)
+    out[finite] = np.unwrap(angle[finite])
+    result: FloatArray = np.degrees(out)
+    return result
 
 
 def wrap_degrees(x: FloatArray) -> FloatArray:

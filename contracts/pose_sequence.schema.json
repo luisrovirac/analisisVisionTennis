@@ -2,13 +2,15 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "tennis-vision/pose_sequence/1.0",
   "title": "PoseSequence",
-  "description": "Pose por fotograma que el worker guarda en el bucket como poses/<analysis_id>.json. Permite al equipo de biomecánica iterar métricas offline sin reprocesar video. Índices de landmarks = MediaPipe Pose (33 puntos).",
+  "description": "Pose por fotograma que el worker guarda en el bucket como poses/<analysis_id>.json. Permite al equipo de biomecánica iterar métricas offline sin reprocesar video. Índices de landmarks = MediaPipe Pose (33 puntos). Los clientes lo usan también para dibujar el esqueleto sobre el video (GET /v1/analyses/{id}/media).",
   "type": "object",
   "required": ["schema_version", "fps", "landmark_count", "frames"],
   "properties": {
     "schema_version": {"const": "1.0"},
     "fps": {"type": "number"},
     "landmark_count": {"const": 33},
+    "width": {"type": "integer", "minimum": 1, "description": "Opcional: ancho de los fotogramas analizados (con height da la relación de aspecto; el visor la compara con la del video para detectar rotaciones)."},
+    "height": {"type": "integer", "minimum": 1, "description": "Opcional: alto de los fotogramas analizados."},
     "frames": {
       "type": "array",
       "items": {

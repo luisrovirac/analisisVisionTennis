@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import cast
 
-from tennis_worker.contracts import MetricValue
+from tennis_worker.contracts import CameraView, MetricValue
 from tennis_worker.pipeline.knowledge.models import Condition, KnowledgeBase, Operator, Rule
 
 _EQ_TOLERANCE = 1e-6
@@ -49,6 +49,7 @@ class Evaluation:
     fired: list[FiredRule]  # errores
     unmeasured_metrics: set[str] = field(default_factory=set)
     strengths: list[FiredRule] = field(default_factory=list)
+    skipped_views: dict[str, set[str]] = field(default_factory=dict)  # regla → vistas en las que sí aplica
 
 
 class RuleEngine:
@@ -62,12 +63,18 @@ class RuleEngine:
     def min_confidence(self) -> float:
         return self._min_confidence
 
-    def evaluate(self, kb: KnowledgeBase, metrics: Mapping[str, MetricValue]) -> Evaluation:
+    def evaluate(self, kb: KnowledgeBase, metrics: Mapping[str, MetricValue],
+                 view: CameraView | None = None) -> Evaluation:
+        """view = vista de cámara del video; las reglas que no aplican a esa vista no se evalúan."""
         reliable = {k: v for k, v in metrics.items() if v.confidence >= self._min_confidence}
         fired: list[FiredRule] = []
         strengths: list[FiredRule] = []
         unmeasured: set[str] = set()
+        skipped: dict[str, set[str]] = {}
         for rule in kb.rules:
+            if not rule.applies_to(view):
+                skipped[rule.id] = set(rule.views)
+                continue
             missing = rule.metric_ids - reliable.keys()
             if missing:
                 unmeasured |= missing
@@ -78,7 +85,7 @@ class RuleEngine:
         fired_ids = {f.rule.id for f in fired}
         # Las reglas de salud mandan: no se elogia lo que convive con un error que lo contradice.
         strengths = [s for s in strengths if not fired_ids & set(s.rule.suppressed_by)]
-        return Evaluation(fired=fired, unmeasured_metrics=unmeasured, strengths=strengths)
+        return Evaluation(fired=fired, unmeasured_metrics=unmeasured, strengths=strengths, skipped_views=skipped)
 
 
 def _matches(rule: Rule, metrics: Mapping[str, MetricValue]) -> bool:

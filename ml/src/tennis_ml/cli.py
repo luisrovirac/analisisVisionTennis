@@ -83,6 +83,10 @@ def main(argv: list[str] | None = None) -> None:
     pub.add_argument("export_dir", type=Path)
     diag = sub.add_parser("diagnose", help="analiza confusión crítica y calibración sin re-entrenar")
     diag.add_argument("--out", type=Path, default=None, help="ruta opcional para guardar el informe JSON")
+    mb = sub.add_parser("motionbert", help="exporta MotionBERT (lifting 3D) a ONNX para el worker")
+    mb.add_argument("--out", type=Path, default=Path("export/motionbert"))
+    mb.add_argument("--cache", type=Path, default=Path("data/cache/motionbert"))
+    mb.add_argument("--publish", action="store_true", help="sube el modelo a s3://$S3_BUCKET/models/motionbert/")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
     if args.stage == "make-toy":
@@ -93,6 +97,10 @@ def main(argv: list[str] | None = None) -> None:
         from tennis_ml.publish import main as publish_main
 
         publish_main(args.export_dir)
+    elif args.stage == "motionbert":
+        from tennis_ml.motionbert_export import main as motionbert_main
+
+        motionbert_main(args.out, args.cache, args.publish)
     elif args.stage == "diagnose":
         from tennis_ml.diagnostics import diagnose, print_report
 

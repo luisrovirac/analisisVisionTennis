@@ -17,8 +17,21 @@ type ProposalFilter struct {
 	Limit    int
 }
 
+// Publication es lo que publica una aprobación: la base nueva, su resumen y el changelog estructurado.
+type Publication struct {
+	KB      domain.KnowledgeBase
+	Summary string
+	Entries []domain.ChangelogEntry
+	Bump    domain.Bump
+}
+
 // ApproveFunc construye, dentro de la transacción de aprobación, la base de conocimiento resultante.
-type ApproveFunc func(active domain.Release, p domain.Proposal, catalog []domain.MetricInfo) (domain.KnowledgeBase, string, error)
+type ApproveFunc func(active domain.Release, p domain.Proposal, catalog []domain.MetricInfo) (Publication, error)
+
+// EvidenceSource mide una regla candidata contra el ground truth de consenso del conjunto de test.
+type EvidenceSource interface {
+	RuleEvidence(ctx context.Context, stroke domain.StrokeType, rule domain.Rule) (domain.Evidence, error)
+}
 
 type KnowledgeRepository interface {
 	Catalog(ctx context.Context, stroke domain.StrokeType) ([]domain.MetricInfo, error)
@@ -42,7 +55,7 @@ type KnowledgeRepository interface {
 	Comments(ctx context.Context, proposalID string) ([]domain.Comment, error)
 
 	// RecentSamples: métricas de los últimos análisis completados cuyo dueño permitió la revisión experta.
-	RecentSamples(ctx context.Context, stroke domain.StrokeType, limit int) ([]domain.MetricSample, error)
+	RecentSamples(ctx context.Context, stroke domain.StrokeType, limit int) ([]domain.Sample, error)
 
 	CreateMetricRequest(ctx context.Context, m domain.MetricRequest) (domain.MetricRequest, error)
 	MetricRequests(ctx context.Context, limit int) ([]domain.MetricRequest, error)
@@ -59,9 +72,10 @@ const knowledgeListLimit = 100
 
 // KnowledgeService implementa el flujo experto → validador → versión publicada.
 type KnowledgeService struct {
-	repo KnowledgeRepository
-	cfg  KnowledgeConfig
-	now  func() time.Time
+	repo     KnowledgeRepository
+	cfg      KnowledgeConfig
+	now      func() time.Time
+	evidence EvidenceSource // nil = nadie puede marcar reglas como empirically_validated
 }
 
 func NewKnowledge(repo KnowledgeRepository, cfg KnowledgeConfig, now func() time.Time) *KnowledgeService {
@@ -69,6 +83,12 @@ func NewKnowledge(repo KnowledgeRepository, cfg KnowledgeConfig, now func() time
 		cfg.PreviewSampleSize = 500
 	}
 	return &KnowledgeService{repo: repo, cfg: cfg, now: now}
+}
+
+// WithEvidence conecta la fuente de evidencia que exige empirically_validated.
+func (s *KnowledgeService) WithEvidence(e EvidenceSource) *KnowledgeService {
+	s.evidence = e
+	return s
 }
 
 func (s *KnowledgeService) Catalog(ctx context.Context, stroke domain.StrokeType) ([]domain.MetricInfo, error) {
@@ -162,7 +182,7 @@ func (s *KnowledgeService) impacts(ctx context.Context, active domain.Release, c
 	return out, nil
 }
 
-func (s *KnowledgeService) impactOf(active domain.Release, c domain.Change, samples []domain.MetricSample) RuleImpact {
+func (s *KnowledgeService) impactOf(active domain.Release, c domain.Change, samples []domain.Sample) RuleImpact {
 	impact := RuleImpact{RuleID: c.TargetID()}
 	if i := slices.IndexFunc(active.KB.Rules, func(r domain.Rule) bool { return r.ID == c.TargetID() }); i >= 0 {
 		before := domain.CountRule(active.KB.Rules[i], samples, s.cfg.MinMetricConfidence)
@@ -278,35 +298,92 @@ func (s *KnowledgeService) AddComment(ctx context.Context, author domain.User, p
 // --- Acciones del validador ---
 
 // Approve aplica la propuesta y publica una versión nueva en una sola transacción. Nadie aprueba lo suyo.
+// Si la propuesta pide empirically_validated para alguna regla, la evidencia se comprueba antes.
 func (s *KnowledgeService) Approve(ctx context.Context, validator domain.User, id, note string) (domain.Release, error) {
 	p, err := s.decidable(ctx, validator, id)
 	if err != nil {
 		return domain.Release{}, err
 	}
-	return s.repo.Approve(ctx, p.ID, validator.ID, strings.TrimSpace(note), buildRelease)
+	evidence, err := s.empiricalEvidence(ctx, p)
+	if err != nil {
+		return domain.Release{}, err
+	}
+	return s.repo.Approve(ctx, p.ID, validator.ID, strings.TrimSpace(note), releaseBuilder(validator.ID, s.now(), evidence))
 }
 
-func buildRelease(active domain.Release, p domain.Proposal, catalog []domain.MetricInfo) (domain.KnowledgeBase, string, error) {
-	if p.BaseReleaseID == nil || *p.BaseReleaseID != active.ID {
-		return domain.KnowledgeBase{}, "", fmt.Errorf(
-			"%w: la base de conocimiento cambió desde que se envió la propuesta; pide al experto que la revise y la reenvíe",
-			domain.ErrConflict)
-	}
-	kb, err := domain.ApplyChanges(active.KB, p.Changes, true)
-	if err != nil {
-		return domain.KnowledgeBase{}, "", err
-	}
-	if err := kb.Validate(catalog); err != nil {
-		return domain.KnowledgeBase{}, "", err
-	}
-	if kb.Version, err = domain.NextVersion(active.Version); err != nil {
-		return domain.KnowledgeBase{}, "", err
-	}
-	ids := make([]string, 0, len(p.Changes))
+// empiricalEvidence mide cada regla que pide empirically_validated y falla si alguna no alcanza.
+func (s *KnowledgeService) empiricalEvidence(ctx context.Context, p domain.Proposal) (map[string]domain.Evidence, error) {
+	out := map[string]domain.Evidence{}
 	for _, c := range p.Changes {
-		ids = append(ids, string(c.Op)+" "+c.TargetID())
+		if c.Op != domain.OpUpsertRule || c.Rule == nil || c.Rule.ValidationStatus != domain.ValidationEmpirical {
+			continue
+		}
+		if s.evidence == nil {
+			return nil, fmt.Errorf("%w: no hay ground truth configurado", domain.ErrEvidenceInsufficient)
+		}
+		ev, err := s.evidence.RuleEvidence(ctx, p.Stroke, c.Rule.Normalize())
+		if err != nil {
+			return nil, err
+		}
+		if err := ev.Sufficient(); err != nil {
+			return nil, fmt.Errorf("%s: %w", c.Rule.ID, err)
+		}
+		out[c.Rule.ID] = ev
 	}
-	return kb, fmt.Sprintf("%s (%s)", p.Title, strings.Join(ids, ", ")), nil
+	return out, nil
+}
+
+// releaseBuilder aplica los cambios, deja la traza de validación en cada regla tocada y decide el
+// salto semver según el changelog (patch: textos; minor: umbrales o reglas nuevas; major: retiros).
+func releaseBuilder(validatorID string, now time.Time, evidence map[string]domain.Evidence) ApproveFunc {
+	return func(active domain.Release, p domain.Proposal, catalog []domain.MetricInfo) (Publication, error) {
+		if p.BaseReleaseID == nil || *p.BaseReleaseID != active.ID {
+			return Publication{}, fmt.Errorf(
+				"%w: la base de conocimiento cambió desde que se envió la propuesta; pide al experto que la revise y la reenvíe",
+				domain.ErrConflict)
+		}
+		kb, err := domain.ApplyChanges(active.KB, p.Changes, true)
+		if err != nil {
+			return Publication{}, err
+		}
+		touched := map[string]bool{}
+		for _, c := range p.Changes {
+			touched[c.TargetID()] = c.Op == domain.OpUpsertRule
+		}
+		for i, r := range kb.Rules {
+			if touched[r.ID] {
+				kb.Rules[i].Validation = validationTrace(validatorID, now, evidence[r.ID], r.ValidationStatus)
+			}
+		}
+		if err := kb.Validate(catalog); err != nil {
+			return Publication{}, err
+		}
+		entries, bump := domain.Changelog(active.KB, p.Changes)
+		if kb.Version, err = domain.BumpVersion(active.Version, bump); err != nil {
+			return Publication{}, err
+		}
+		ids := make([]string, 0, len(p.Changes))
+		for _, c := range p.Changes {
+			ids = append(ids, string(c.Op)+" "+c.TargetID())
+		}
+		return Publication{KB: kb, Summary: fmt.Sprintf("%s (%s)", p.Title, strings.Join(ids, ", ")),
+			Entries: entries, Bump: bump}, nil
+	}
+}
+
+func validationTrace(validatorID string, now time.Time, ev domain.Evidence, status string) *domain.RuleValidation {
+	v := &domain.RuleValidation{ValidatedBy: []string{validatorID}, ValidatedAt: &now}
+	if status != domain.ValidationEmpirical {
+		return v
+	}
+	v.N, v.Alpha, v.CampaignID = ev.Confusion.N(), ev.Alpha, ev.Campaign
+	if p := ev.Confusion.Precision(); p != nil {
+		v.Precision = &p.Value
+	}
+	if r := ev.Confusion.Recall(); r != nil {
+		v.Recall = &r.Value
+	}
+	return v
 }
 
 func (s *KnowledgeService) Reject(ctx context.Context, validator domain.User, id, note string) (domain.Proposal, error) {

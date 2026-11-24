@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from pydantic import ValidationError
 
-from tennis_worker.contracts import MetricValue
+from tennis_worker.contracts import MetricValue, StrokeType
 from tennis_worker.errors import UnsupportedStrokeError
 from tennis_worker.pipeline.biomechanics.registry import default_registry
 from tennis_worker.pipeline.knowledge.engine import RuleEngine
@@ -39,11 +39,18 @@ def test_real_knowledge_bases_only_reference_existing_metrics() -> None:
         assert referenced <= registry.metric_ids(base.stroke), base.label
 
 
-def test_load_forehand_and_reject_unknown_stroke() -> None:
+def test_load_every_stroke_and_reject_a_missing_one(tmp_path: Path) -> None:
     repo = YamlKnowledgeBaseRepository(KNOWLEDGE_DIR)
-    assert repo.load("forehand").label.startswith("forehand@")
+    for stroke in get_args(StrokeType):
+        assert repo.load(stroke).label.startswith(f"{stroke}@")
     with pytest.raises(UnsupportedStrokeError):
-        repo.load("volley")
+        YamlKnowledgeBaseRepository(tmp_path).load("volley")
+
+
+def test_every_seed_has_errors_and_strengths() -> None:
+    for base in YamlKnowledgeBaseRepository(KNOWLEDGE_DIR).load_all():
+        assert len(base.errors) >= 6 and len(base.strengths) >= 6, base.label
+        assert not any(rule.validated for rule in base.rules), base.label  # solo un validador valida
 
 
 def test_invalid_yaml_fails_on_load(tmp_path: Path) -> None:
@@ -136,3 +143,23 @@ def test_seed_yaml_matches_shared_json_schema() -> None:
     schema = json.loads((CONTRACTS_DIR / "knowledge_base.schema.json").read_text(encoding="utf-8"))
     for path in sorted(KNOWLEDGE_DIR.glob("*.yaml")):
         jsonschema.validate(yaml.safe_load(path.read_text(encoding="utf-8")), schema)
+
+
+# --- KB 2.1: estado de validación ---
+
+def test_kb21_validation_fields_and_legacy_validated() -> None:
+    legacy = kb({**rule("FH-A-001", {"all": [{"metric": "m", "op": "gt", "value": 1}]}), "validated": True})
+    assert legacy.rules[0].status == "expert_reviewed" and legacy.rules[0].is_validated
+    seed = kb(rule("FH-A-001", {"all": [{"metric": "m", "op": "gt", "value": 1}]}))
+    assert seed.rules[0].status == "heuristic_unvalidated" and not seed.rules[0].is_validated
+    empirical = kb({**rule("FH-A-001", {"all": [{"metric": "m", "op": "gt", "value": 1}]}),
+                    "validation_status": "empirically_validated", "evidence": "n=40, P=0.85",
+                    "evidence_level": "expert_validated",
+                    "validation": {"validated_by": ["u1"], "n": 40, "precision": 0.85, "recall": 0.82}})
+    assert empirical.rules[0].status == "empirically_validated"
+    assert empirical.rules[0].validation is not None and empirical.rules[0].validation.n == 40
+
+
+def test_kb21_rejects_unknown_validation_status() -> None:
+    with pytest.raises(ValidationError):
+        kb({**rule("FH-A-001", {"all": [{"metric": "m", "op": "gt", "value": 1}]}), "validation_status": "certified"})

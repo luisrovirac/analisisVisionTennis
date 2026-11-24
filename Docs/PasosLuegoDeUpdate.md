@@ -70,6 +70,8 @@ cd /c/Users/User/Projects/SaxNew/analisisVisionTennis
 node --check api/web/static/app.js
 node --check api/web/static/auth.js
 node --check api/web/static/portal.js
+node --check api/web/static/portal-validation.js
+node --check api/web/static/skeleton-viewer.js
 
 Si no sale nada, está bien. Si sale un error, hay un fallo de sintaxis en ese archivo.
 
@@ -91,8 +93,7 @@ Para probarla contra el backend local, sigue mobile/README.md.
 ---
 
 * 6. Si cambiaste contracts/ (el formato de los datos)
-contracts/ define cómo se pasan los datos entre la API, el worker y la app. Si lo cambias, hay que
-probar los tres. Basta con haber hecho los pasos 2, 3 y 5 sin errores.
+contracts/ define cómo se pasan los datos entre la API, el worker y la app. Si lo cambias, hay que probar los tres. Basta con haber hecho los pasos 2, 3 y 5 sin errores.
 
 Regla sencilla para no romper nada:
 - Si **añadiste** un campo nuevo y opcional: no pasa nada, puedes actualizar en cualquier orden.
@@ -125,7 +126,7 @@ docker exec tennis-vision-postgres-1 sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGR
 
 Reglas de las migraciones:
 - Nunca edites una migración que ya se ejecutó. Crea una nueva con el número siguiente
-  (la última ahora es 0006, la siguiente sería 0007_algo.up.sql y 0007_algo.down.sql).
+  (la última ahora es 0007, la siguiente sería 0008_algo.up.sql y 0008_algo.down.sql).
 - Una vez migrada la base, una API antigua ya no arranca contra ella. No vuelvas a una versión
   vieja de la API sin deshacer antes la migración.
 
@@ -207,14 +208,19 @@ C:\Users\User\Projects\SaxNew\analisisVisionTennis\samples\forehand.mp4
 cd /c/Users/User/Projects/SaxNew/analisisVisionTennis
 worker/.venv/Scripts/python.exe scripts/e2e.py samples/forehand.mp4 --api http://localhost:8080
 
+Para otro golpe añade `--stroke backhand`, `--stroke serve` o `--stroke volley` (con un video de ese golpe).
+
 Entra como alice y bob, sube el video, espera el análisis y comprueba que uno no ve los datos del otro.
 Debe terminar sin errores.
 
 ---
 
 * 14. Si cambiaste las reglas del análisis (worker/knowledge_base/*.yaml)
-Importante: editar el YAML **no cambia** las reglas que ya están en uso. El YAML solo se usa la
-primera vez, cuando ese golpe todavía no existe en la base de datos.
+Importante: editar el YAML normalmente **no cambia** las reglas que ya están en uso. El YAML se usa:
+- la primera vez, cuando ese golpe todavía no existe en la base de datos;
+- o si subes su `version` y ese golpe **nunca** se ha tocado desde el portal (ni propuestas ni
+  versiones publicadas por expertos). En ese caso el worker publica la versión nueva al arrancar.
+En cuanto un experto trabaja un golpe desde el portal, el YAML ya no lo pisa.
 
 - Para cambiar una regla o un umbral: hazlo desde el portal (http://localhost:8080/portal.html).
   Un experto lo propone, un validador lo aprueba y el worker lo usa solo.
@@ -277,10 +283,21 @@ Debe aparecer: «base de conocimiento sembrada en Postgres».
 4. En «Historial de versiones» reactiva la versión anterior y comprueba que el siguiente análisis
    usa esa versión.
 
+* G. Validación formal (revisiones, campañas Delphi, calibración)
+Requiere al menos 3 cuentas con rol de experto o validador y análisis con permiso de revisión.
+1. En «Casos», abre un análisis, califica algunas reglas (1-7 + veredicto) y pulsa «Guardar mi revisión».
+   Como validador, pulsa «Agregar al corpus» en varios casos.
+2. En «Campañas y corpus», crea una campaña con esos casos y 3 evaluadores. Entra con cada evaluador:
+   la vista del caso es ciega (sin hallazgos ni métricas). Califica, abre la ronda 2 (verás la
+   distribución anónima) y cierra la campaña: el α y el ground truth aparecen en el detalle.
+3. En el editor de una regla, pulsa «Calibrar»: curva precisión/recall contra el ground truth.
+4. «Calidad de la base» muestra los KPIs y las reglas a auditar. Proponer una regla con
+   «Pedir validada con datos» sin evidencia suficiente debe fallar al aprobar (422).
+
 * F. App Android
 Haz el paso 5 y pasa la apk nueva. Las apks viejas siguen funcionando, solo que no muestran lo nuevo.
 
 * Pendiente (no se hace ahora)
 - Activar la verificación de email en Keycloak con un servidor de correo antes de producción.
-- Añadir el flujo del portal a scripts/e2e.py.
+- Completar el flujo del portal en scripts/e2e.py: ya cubre la revisión libre y los KPIs de calidad; faltan propuestas, campañas Delphi y calibración.
 - Biblioteca de ejercicios (fase 4 de Docs/planIII-upgrade-expertos.md).

@@ -36,9 +36,14 @@ class WristSpeedSegmenter:
         impact = int(np.argmax(wrist_speed))
         if wrist_speed[impact] < self.min_peak_speed:
             raise NoStrokeFoundError(f"pico de muñeca {wrist_speed[impact]:.2f} m/s")
-        half = round(self.window_seconds * fps)
+        return self.segment_at(pose, handedness, impact)
+
+    def segment_at(self, pose: PoseSequence, handedness: Handedness, impact: int) -> Segment:
+        """Ventana y backswing alrededor de un impacto ya conocido (p. ej. el que fija el audio)."""
+        del handedness  # el backswing se mide con los hombros, igual para diestros y zurdos
+        half = round(self.window_seconds * pose.fps)
         start, end = max(0, impact - half), min(pose.frame_count - 1, impact + half)
-        return Segment(fps=fps, start_frame=start, backswing_frame=self._backswing(pose, start, impact),
+        return Segment(fps=pose.fps, start_frame=start, backswing_frame=self._backswing(pose, start, impact),
                        impact_frame=impact, end_frame=end)
 
     @staticmethod

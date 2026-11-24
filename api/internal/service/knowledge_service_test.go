@@ -21,7 +21,7 @@ type fakeKnowledgeRepo struct {
 	releases  []domain.Release
 	proposals map[string]domain.Proposal
 	comments  []domain.Comment
-	samples   []domain.MetricSample
+	samples   []domain.Sample
 	audits    []string
 	seq       int
 }
@@ -121,14 +121,15 @@ func (r *fakeKnowledgeRepo) Approve(ctx context.Context, id, validator, note str
 	if err != nil {
 		return domain.Release{}, err
 	}
-	kb, changelog, err := build(active, p, r.catalog)
+	pub, err := build(active, p, r.catalog)
 	if err != nil {
 		return domain.Release{}, err
 	}
 	for i := range r.releases {
 		r.releases[i].Active = false
 	}
-	rel := domain.Release{ID: r.id(), Stroke: p.Stroke, Version: kb.Version, KB: kb, Changelog: changelog,
+	rel := domain.Release{ID: r.id(), Stroke: p.Stroke, Version: pub.KB.Version, KB: pub.KB, Changelog: pub.Summary,
+		Entries: pub.Entries, Bump: &pub.Bump,
 		ProposalID: &p.ID, ValidatedBy: &validator, Active: true, Status: domain.ReleaseValid}
 	r.releases = append(r.releases, rel)
 	p.Status, p.DecidedBy, p.ReleaseID = domain.ProposalApproved, &validator, &rel.ID
@@ -156,7 +157,7 @@ func (r *fakeKnowledgeRepo) Comments(context.Context, string) ([]domain.Comment,
 	return r.comments, nil
 }
 
-func (r *fakeKnowledgeRepo) RecentSamples(context.Context, domain.StrokeType, int) ([]domain.MetricSample, error) {
+func (r *fakeKnowledgeRepo) RecentSamples(context.Context, domain.StrokeType, int) ([]domain.Sample, error) {
 	return r.samples, nil
 }
 
@@ -288,9 +289,9 @@ func TestRequestChangesThenResubmit(t *testing.T) {
 
 func TestProposalDetailShowsImpactBeforeAndAfter(t *testing.T) {
 	svc, repo := newKnowledgeSvc(t)
-	repo.samples = []domain.MetricSample{
-		{"knee_angle_min": {Value: 162, Confidence: 0.9}}, // dispara con 160, no con 165
-		{"knee_angle_min": {Value: 170, Confidence: 0.9}}, // dispara con ambos
+	repo.samples = []domain.Sample{
+		{Metrics: domain.MetricSample{"knee_angle_min": {Value: 162, Confidence: 0.9}}}, // dispara con 160, no con 165
+		{Metrics: domain.MetricSample{"knee_angle_min": {Value: 170, Confidence: 0.9}}}, // dispara con ambos
 	}
 	p := submitted(t, svc, ana)
 	d, err := svc.Proposal(context.Background(), p.ID)

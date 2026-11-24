@@ -47,20 +47,30 @@ WHERE $1 = '' OR stroke = $1 ORDER BY stroke, metric_id`, string(stroke))
 
 // --- Versiones ---
 
-const releaseColumns = `
-SELECT id::text, stroke, version, snapshot, changelog, proposal_id::text, proposed_by::text, validated_by::text,
+var releaseColumns = `
+SELECT kb_releases.id::text, stroke, version, snapshot, changelog, changelog_entries, bump, proposal_id::text,
+       proposed_by::text, ` + named("proposed_by") + `, validated_by::text, ` + named("validated_by") + `,
        active, status, invalid_reason, created_at
 FROM kb_releases`
 
 func scanRelease(row pgx.Row) (domain.Release, error) {
 	var r domain.Release
-	var snapshot []byte
-	if err := row.Scan(&r.ID, &r.Stroke, &r.Version, &snapshot, &r.Changelog, &r.ProposalID, &r.ProposedBy,
-		&r.ValidatedBy, &r.Active, &r.Status, &r.InvalidReason, &r.CreatedAt); err != nil {
+	var snapshot, entries []byte
+	var bump *string
+	if err := row.Scan(&r.ID, &r.Stroke, &r.Version, &snapshot, &r.Changelog, &entries, &bump, &r.ProposalID,
+		&r.ProposedBy, &r.ProposerName, &r.ValidatedBy, &r.ValidatorName, &r.Active, &r.Status, &r.InvalidReason,
+		&r.CreatedAt); err != nil {
 		return domain.Release{}, err
 	}
 	if err := json.Unmarshal(snapshot, &r.KB); err != nil {
 		return domain.Release{}, fmt.Errorf("snapshot ilegible en %s: %w", r.ID, err)
+	}
+	if err := json.Unmarshal(entries, &r.Entries); err != nil {
+		return domain.Release{}, fmt.Errorf("changelog ilegible en %s: %w", r.ID, err)
+	}
+	if bump != nil {
+		b := domain.Bump(*bump)
+		r.Bump = &b
 	}
 	return r, nil
 }
@@ -81,7 +91,7 @@ func (k *PostgresKnowledge) ActiveRelease(ctx context.Context, stroke domain.Str
 }
 
 func (k *PostgresKnowledge) Release(ctx context.Context, id string) (domain.Release, error) {
-	return oneRelease(k.pool.QueryRow(ctx, releaseColumns+` WHERE id = $1::uuid`, id))
+	return oneRelease(k.pool.QueryRow(ctx, releaseColumns+` WHERE kb_releases.id = $1::uuid`, id))
 }
 
 func (k *PostgresKnowledge) Releases(ctx context.Context, stroke domain.StrokeType, limit int) ([]domain.Release, error) {
@@ -202,7 +212,7 @@ func (k *PostgresKnowledge) Approve(ctx context.Context, id, validatorID, note s
 		if p.AuthorID == validatorID {
 			return fmt.Errorf("%w: nadie valida sus propias propuestas", domain.ErrForbidden)
 		}
-		active, err := oneRelease(tx.QueryRow(ctx, releaseColumns+` WHERE stroke = $1 AND active FOR UPDATE`, p.Stroke))
+		active, err := oneRelease(tx.QueryRow(ctx, releaseColumns+` WHERE stroke = $1 AND active FOR UPDATE OF kb_releases`, p.Stroke))
 		if err != nil {
 			return err
 		}
@@ -210,22 +220,28 @@ func (k *PostgresKnowledge) Approve(ctx context.Context, id, validatorID, note s
 		if err != nil {
 			return err
 		}
-		kb, changelog, err := build(active, p, catalog)
+		pub, err := build(active, p, catalog)
 		if err != nil {
 			return err
 		}
+		kb := pub.KB
 		snapshot, err := json.Marshal(kb)
 		if err != nil {
 			return fmt.Errorf("serializar versión: %w", err)
+		}
+		entries, err := json.Marshal(pub.Entries)
+		if err != nil {
+			return fmt.Errorf("serializar changelog: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `UPDATE kb_releases SET active = false WHERE id = $1::uuid`, active.ID); err != nil {
 			return fmt.Errorf("desactivar versión anterior: %w", err)
 		}
 		var releaseID string
 		if err := tx.QueryRow(ctx, `
-INSERT INTO kb_releases (stroke, version, snapshot, changelog, proposal_id, proposed_by, validated_by, active, status, activated_at)
-VALUES ($1, $2, $3, $4, $5::uuid, $6::uuid, $7::uuid, true, 'valid', now()) RETURNING id::text`,
-			p.Stroke, kb.Version, snapshot, changelog, p.ID, p.AuthorID, validatorID).Scan(&releaseID); err != nil {
+INSERT INTO kb_releases (stroke, version, snapshot, changelog, changelog_entries, bump, proposal_id, proposed_by,
+                         validated_by, active, status, activated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7::uuid, $8::uuid, $9::uuid, true, 'valid', now()) RETURNING id::text`,
+			p.Stroke, kb.Version, snapshot, pub.Summary, entries, string(pub.Bump), p.ID, p.AuthorID, validatorID).Scan(&releaseID); err != nil {
 			return fmt.Errorf("publicar versión: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `
@@ -235,10 +251,10 @@ WHERE id = $1::uuid`, p.ID, validatorID, note, releaseID); err != nil {
 			return fmt.Errorf("cerrar propuesta: %w", err)
 		}
 		if err := audit(ctx, tx, &validatorID, "proposal.approved", "proposal:"+p.ID,
-			map[string]any{"release_id": releaseID, "version": kb.Version, "stroke": p.Stroke}); err != nil {
+			map[string]any{"release_id": releaseID, "version": kb.Version, "stroke": p.Stroke, "bump": pub.Bump}); err != nil {
 			return err
 		}
-		published, err = oneRelease(tx.QueryRow(ctx, releaseColumns+` WHERE id = $1::uuid`, releaseID))
+		published, err = oneRelease(tx.QueryRow(ctx, releaseColumns+` WHERE kb_releases.id = $1::uuid`, releaseID))
 		return err
 	})
 	return published, err
@@ -259,7 +275,7 @@ func catalogTx(ctx context.Context, tx pgx.Tx, stroke domain.StrokeType) ([]doma
 func (k *PostgresKnowledge) Activate(ctx context.Context, releaseID, actorID string) (domain.Release, error) {
 	var activated domain.Release
 	err := pgx.BeginFunc(ctx, k.pool, func(tx pgx.Tx) error {
-		target, err := oneRelease(tx.QueryRow(ctx, releaseColumns+` WHERE id = $1::uuid FOR UPDATE`, releaseID))
+		target, err := oneRelease(tx.QueryRow(ctx, releaseColumns+` WHERE kb_releases.id = $1::uuid FOR UPDATE OF kb_releases`, releaseID))
 		if err != nil {
 			return err
 		}
@@ -319,40 +335,46 @@ FROM kb_proposal_comments c WHERE c.proposal_id = $1::uuid ORDER BY c.created_at
 
 // Solo análisis con el checkbox de revisión experta marcado: lo mismo que puede ver un experto.
 const recentSamplesSQL = `
-SELECT report->'metrics' FROM analyses
+SELECT id::text, camera_view, report->'metrics' FROM analyses
 WHERE status = 'completed' AND expert_review_allowed AND report IS NOT NULL
   AND COALESCE(report->>'stroke_type', stroke_type) = $1
 ORDER BY created_at DESC LIMIT $2`
 
-func (k *PostgresKnowledge) RecentSamples(ctx context.Context, stroke domain.StrokeType, limit int) ([]domain.MetricSample, error) {
+func (k *PostgresKnowledge) RecentSamples(ctx context.Context, stroke domain.StrokeType, limit int) ([]domain.Sample, error) {
 	rows, err := k.pool.Query(ctx, recentSamplesSQL, stroke, limit)
 	if err != nil {
 		return nil, fmt.Errorf("leer análisis recientes: %w", err)
 	}
-	type metric struct {
-		ID         string  `json:"id"`
-		Value      float64 `json:"value"`
-		Confidence float64 `json:"confidence"`
-	}
-	samples, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.MetricSample, error) {
+	samples, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.Sample, error) {
+		var s domain.Sample
 		var raw []byte
-		if err := row.Scan(&raw); err != nil {
-			return nil, err
+		if err := row.Scan(&s.ID, &s.View, &raw); err != nil {
+			return s, err
 		}
-		var metrics []metric
-		if err := json.Unmarshal(raw, &metrics); err != nil {
-			return domain.MetricSample{}, nil // reporte antiguo o raro: se ignora
-		}
-		s := domain.MetricSample{}
-		for _, m := range metrics {
-			s[m.ID] = struct{ Value, Confidence float64 }{m.Value, m.Confidence}
-		}
+		s.Metrics = parseMetrics(raw)
 		return s, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("leer métricas: %w", err)
 	}
 	return samples, nil
+}
+
+// parseMetrics lee report.metrics; un reporte antiguo o raro da una muestra vacía (nada medible).
+func parseMetrics(raw []byte) domain.MetricSample {
+	var metrics []struct {
+		ID         string  `json:"id"`
+		Value      float64 `json:"value"`
+		Confidence float64 `json:"confidence"`
+	}
+	s := domain.MetricSample{}
+	if json.Unmarshal(raw, &metrics) != nil {
+		return s
+	}
+	for _, m := range metrics {
+		s[m.ID] = struct{ Value, Confidence float64 }{m.Value, m.Confidence}
+	}
+	return s
 }
 
 // --- Solicitudes de métricas ---

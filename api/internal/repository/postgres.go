@@ -78,6 +78,52 @@ func (r *PostgresRepository) List(ctx context.Context, ownerID string, after *do
 	return items, nil
 }
 
+// --- Casos para el portal de expertos ---
+
+// Solo análisis completados con el checkbox de revisión experta marcado: si el dueño lo desmarca,
+// el caso desaparece de inmediato (también del detalle). El filtro por regla usa contención JSONB.
+const casesSQL = selectColumns + `
+WHERE status = 'completed' AND expert_review_allowed AND report IS NOT NULL
+  AND ($1::text = '' OR COALESCE(report->>'stroke_type', stroke_type) = $1::text)
+  AND ($2::text = ''
+       OR report->'findings' @> jsonb_build_array(jsonb_build_object('rule_id', $2::text))
+       OR report->'strengths' @> jsonb_build_array(jsonb_build_object('rule_id', $2::text)))
+  AND ($3::timestamptz IS NULL OR (created_at, id) < ($3::timestamptz, $4::uuid))
+ORDER BY created_at DESC, id DESC
+LIMIT $5`
+
+func (r *PostgresRepository) Cases(ctx context.Context, f domain.CaseFilter, limit int) ([]domain.Analysis, error) {
+	var afterAt, afterID any
+	if f.Query.After != nil {
+		afterAt, afterID = f.Query.After.CreatedAt, f.Query.After.ID
+	}
+	rows, err := r.pool.Query(ctx, casesSQL, string(f.Stroke), f.RuleID, afterAt, afterID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("listar casos: %w", err)
+	}
+	items, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (domain.Analysis, error) {
+		return scanAnalysis(row)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("leer casos: %w", err)
+	}
+	return items, nil
+}
+
+const caseSQL = selectColumns + `
+WHERE id = $1::uuid AND status = 'completed' AND expert_review_allowed AND report IS NOT NULL`
+
+func (r *PostgresRepository) Case(ctx context.Context, id string) (domain.Analysis, error) {
+	a, err := scanAnalysis(r.pool.QueryRow(ctx, caseSQL, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Analysis{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Analysis{}, fmt.Errorf("consultar caso: %w", err)
+	}
+	return a, nil
+}
+
 func scanAnalysis(row pgx.Row) (domain.Analysis, error) {
 	var a domain.Analysis
 	err := row.Scan(

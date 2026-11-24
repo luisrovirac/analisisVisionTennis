@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import Protocol
 
 from tennis_worker.contracts import MetricValue, StrokeType
 from tennis_worker.errors import UnsupportedStrokeError
@@ -20,6 +21,13 @@ class CatalogEntry:
     metric_id: str
     label: str
     unit: str
+
+
+class MetricComputer(Protocol):
+    """Lo que el pipeline necesita: calcular todas las métricas de un golpe (MetricRegistry o un envoltorio
+    como TemporalRobustness)."""
+
+    def compute_all(self, stroke: StrokeType, ctx: MetricContext) -> dict[str, MetricValue]: ...
 
 
 class MetricRegistry:
@@ -43,7 +51,9 @@ class MetricRegistry:
 
 
 def default_registry() -> MetricRegistry:
-    forehand: list[Metric] = [
+    """Qué mide el worker en cada golpe. Una regla solo puede citar métricas de su golpe; quitar una
+    métrica de aquí invalida las versiones publicadas que la usen (el worker las descarta)."""
+    groundstroke: list[Metric] = [  # comunes a forehand y revés
         m.ShoulderRotationRange(),
         m.HipShoulderSeparationMax(),
         m.ElbowAngleAtImpact(),
@@ -51,5 +61,34 @@ def default_registry() -> MetricRegistry:
         m.ContactPointAhead(),
         m.FollowThroughHeight(),
         m.KineticChainSequence(),
+        m.StanceWidthRatio(),
+        m.HeadStability(),
+        m.RacketDropBelowContact(),
+        m.LegDrive(),
+        m.UnitTurnLeadTime(),
     ]
-    return MetricRegistry({"forehand": forehand})
+    forehand = [*groundstroke, m.OffArmExtension()]
+    backhand = [*groundstroke, m.WristSeparationAtImpact()]
+    serve: list[Metric] = [
+        m.KneeAngleMin(),
+        m.LegDrive(),
+        m.ElbowAngleAtImpact(),
+        m.ContactHeight(),
+        m.TrophyElbowAngle(),
+        m.TossArmHeight(),
+        m.ShoulderTiltAtTrophy(),
+        m.ShoulderRotationRange(),
+        m.HipShoulderSeparationMax(),
+        m.KineticChainSequence(),
+    ]
+    volley: list[Metric] = [
+        m.BackswingWristTravel(),
+        m.FollowThroughLength(),
+        m.ContactPointAhead(),
+        m.ElbowAngleAtImpact(),
+        m.KneeAngleMin(),
+        m.StanceWidthRatio(),
+        m.HeadStability(),
+        m.ShoulderRotationRange(),
+    ]
+    return MetricRegistry({"forehand": forehand, "backhand": backhand, "serve": serve, "volley": volley})

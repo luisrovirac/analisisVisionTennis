@@ -8,7 +8,8 @@ import pytest
 from tennis_worker.contracts import MetricValue
 from tennis_worker.errors import UnsupportedStrokeError
 from tennis_worker.pipeline.biomechanics.base import MetricContext
-from tennis_worker.pipeline.biomechanics.registry import default_registry
+from tennis_worker.pipeline.biomechanics.metrics import ShoulderRotationRange
+from tennis_worker.pipeline.biomechanics.registry import MetricRegistry, default_registry
 from tennis_worker.pipeline.landmarks import RIGHT
 from tennis_worker.pipeline.segmentation import WristSpeedSegmenter
 from tests.synthetic import BAD_SWING, GOOD_SWING, SwingSpec, make_pose
@@ -58,6 +59,20 @@ def test_kinetic_chain_order(good: dict[str, MetricValue], bad: dict[str, Metric
     assert bad["kinetic_chain_sequence"].value == 0.0
 
 
+@pytest.mark.parametrize(("t_hip", "t_shoulder", "t_wrist", "expected"), [
+    (10, 12, 15, True),   # orden estricto
+    (10, 10, 10, True),   # mismo fotograma (habitual a 30 fps en profesionales)
+    (11, 10, 10, True),   # hombros un fotograma antes que la cadera: dentro de la resolución
+    (10, 11, 10, True),   # muñeca un fotograma antes que los hombros
+    (12, 10, 14, False),  # hombros dos fotogramas antes: desorden real
+    (10, 12, 5, False),   # la muñeca se adelanta claramente
+])
+def test_kinetic_chain_tolerates_one_frame(t_hip: int, t_shoulder: int, t_wrist: int, expected: bool) -> None:
+    from tennis_worker.pipeline.biomechanics.metrics import peaks_in_order
+
+    assert peaks_in_order(t_hip, t_shoulder, t_wrist, tolerance_frames=1) is expected
+
+
 def test_confidence_drops_when_landmarks_are_hidden() -> None:
     pose = make_pose()
     visibility = pose.visibility.copy()
@@ -85,5 +100,20 @@ def test_left_handed_uses_left_arm() -> None:
 def test_unsupported_stroke_raises() -> None:
     pose = make_pose()
     segment = WristSpeedSegmenter().segment(pose, "right")
+    only_forehand = MetricRegistry({"forehand": [ShoulderRotationRange()]})
     with pytest.raises(UnsupportedStrokeError):
-        default_registry().compute_all("serve", MetricContext(pose, segment, "right"))
+        only_forehand.compute_all("serve", MetricContext(pose, segment, "right"))
+
+
+@pytest.mark.parametrize("stroke", ["forehand", "backhand", "serve", "volley"])
+def test_every_metric_names_the_landmarks_it_relies_on(stroke: str) -> None:
+    pose = make_pose(GOOD_SWING)
+    segment = WristSpeedSegmenter().segment(pose, "right")
+    metrics = default_registry().compute_all(stroke, MetricContext(pose, segment, "right"))  # type: ignore[arg-type]
+    for metric in metrics.values():
+        assert metric.landmarks, metric.id
+        assert all(0 <= i < 33 for i in metric.landmarks), metric.id
+
+
+def test_elbow_metric_highlights_the_dominant_arm(good: dict[str, MetricValue]) -> None:
+    assert set(good["elbow_angle_at_impact"].landmarks or []) == {RIGHT.shoulder, RIGHT.elbow, RIGHT.wrist}

@@ -19,7 +19,11 @@ def to_artifact(pose: PoseSequence) -> dict[str, Any]:
          "visibility": visibility[i]}
         for i in range(pose.frame_count)
     ]
-    return {"schema_version": POSE_SCHEMA_VERSION, "fps": pose.fps, "landmark_count": LANDMARK_COUNT, "frames": frames}
+    artifact: dict[str, Any] = {"schema_version": POSE_SCHEMA_VERSION, "fps": pose.fps,
+                                "landmark_count": LANDMARK_COUNT, "frames": frames}
+    if pose.frame_size is not None:  # opcional (aditivo): permite verificar la orientación en el visor
+        artifact["width"], artifact["height"] = pose.frame_size
+    return artifact
 
 
 def from_artifact(data: dict[str, Any]) -> PoseSequence:
@@ -32,4 +36,6 @@ def from_artifact(data: dict[str, Any]) -> PoseSequence:
     visibility = np.array([f["visibility"] for f in frames], dtype=np.float64).reshape(len(frames), LANDMARK_COUNT)
     image[~detected] = np.nan
     world[~detected] = np.nan
-    return PoseSequence(fps=float(data["fps"]), image=image, world=world, visibility=visibility, detected=detected)
+    size = (int(data["width"]), int(data["height"])) if "width" in data and "height" in data else None
+    return PoseSequence(fps=float(data["fps"]), image=image, world=world, visibility=visibility, detected=detected,
+                        frame_size=size)

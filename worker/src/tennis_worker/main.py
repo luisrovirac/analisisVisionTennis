@@ -20,10 +20,13 @@ from tennis_worker.infrastructure.analysis_repository import PostgresAnalysisRep
 from tennis_worker.infrastructure.knowledge_store import PostgresKnowledgeStore
 from tennis_worker.infrastructure.model_store import ModelStore
 from tennis_worker.infrastructure.redis_consumer import RedisJobConsumer
+from tennis_worker.infrastructure.reference_store import S3ReferenceStore
 from tennis_worker.infrastructure.s3_store import S3ObjectStore
 from tennis_worker.logging_setup import configure_logging
 from tennis_worker.observability import Instrumentation, setup_telemetry
+from tennis_worker.pipeline.audio import AudioImpactRefiner, PyAvAudioReader
 from tennis_worker.pipeline.biomechanics.registry import MetricRegistry, default_registry
+from tennis_worker.pipeline.biomechanics.robustness import TemporalRobustness
 from tennis_worker.pipeline.classification import (
     COMBINERS,
     PoseSequenceClassifier,
@@ -40,9 +43,11 @@ from tennis_worker.pipeline.knowledge.repository import (
     YamlKnowledgeBaseRepository,
 )
 from tennis_worker.pipeline.orchestrator import AnalysisPipeline, PipelineStages
+from tennis_worker.pipeline.pose import PoseEstimator
 from tennis_worker.pipeline.pose.mediapipe_estimator import MediaPipePoseEstimator
 from tennis_worker.pipeline.prioritization import CategoryImpactPrioritizer
 from tennis_worker.pipeline.quality import QualityAssessor
+from tennis_worker.pipeline.reference import ReferenceComparator, ReferenceProvider
 from tennis_worker.pipeline.segmentation import WristSpeedSegmenter
 from tennis_worker.pipeline.video import OpenCVVideoReader, VideoReader
 
@@ -70,18 +75,52 @@ def build_recognizer(settings: Settings, models: ModelStore, video_reader: Video
     return StrokeRecognizer(classifiers, combiner)
 
 
+def build_pose_estimator(settings: Settings, models: ModelStore) -> tuple[PoseEstimator, str]:
+    """El estimador de pose y una nota para las razones de fiabilidad del reporte."""
+    if settings.pose_estimator == "mediapipe":
+        return MediaPipePoseEstimator(settings.pose_model_path), "Pose estimada con MediaPipe."
+    from tennis_worker.infrastructure.pose_models import RTMPOSE_M_BODY7, YOLOX_M_HUMANART, ensure_onnx
+    from tennis_worker.pipeline.pose.lifting import MotionBertLifter
+    from tennis_worker.pipeline.pose.rtm_motionbert_estimator import RtmPoseMotionBertEstimator
+    from tennis_worker.pipeline.pose.rtmpose import RtmPoseModel, YoloxPersonDetector, onnx_session
+
+    cache = settings.stroke_models_dir
+    lifter_dir = models.ensure("motionbert", settings.motionbert_model_version)
+    estimator = RtmPoseMotionBertEstimator(
+        detector=YoloxPersonDetector(onnx_session(ensure_onnx(YOLOX_M_HUMANART, cache))),
+        pose_model=RtmPoseModel(onnx_session(ensure_onnx(RTMPOSE_M_BODY7, cache))),
+        lifter=MotionBertLifter(onnx_session(lifter_dir / "model.onnx")),
+    )
+    logger.info("estimador de pose", extra={"estimator": "rtmpose_motionbert",
+                                            "motionbert": settings.motionbert_model_version})
+    return estimator, f"Pose estimada con RTMPose + MotionBERT ({settings.motionbert_model_version})."
+
+
 def build_pipeline(settings: Settings, registry: MetricRegistry, knowledge: KnowledgeBaseRepository,
-                   recognizer: StrokeRecognizer, obs: Instrumentation) -> AnalysisPipeline:
+                   recognizer: StrokeRecognizer, obs: Instrumentation,
+                   pose: tuple[PoseEstimator, str] | None = None,
+                   references: ReferenceProvider | None = None) -> AnalysisPipeline:
+    estimator, estimator_note = pose or (MediaPipePoseEstimator(settings.pose_model_path), "")
+    segmenter = WristSpeedSegmenter()
+    refiner = AudioImpactRefiner(PyAvAudioReader(max_seconds=settings.max_video_seconds + 5),
+                                 rebuild=segmenter.segment_at) if settings.impact_from_audio else None
     return AnalysisPipeline(PipelineStages(
         video_reader=OpenCVVideoReader(max_seconds=settings.max_video_seconds),
-        pose_estimator=MediaPipePoseEstimator(settings.pose_model_path),
+        pose_estimator=estimator,
         quality=QualityAssessor(min_detection_rate=settings.min_pose_detection_rate),
         classifier=recognizer,
-        segmenter=WristSpeedSegmenter(),
-        metrics=registry,
+        segmenter=segmenter,
+        metrics=TemporalRobustness(registry, default_uncertainty_s=settings.impact_uncertainty_seconds,
+                                   enabled=settings.metric_sensitivity_check),
         knowledge=knowledge,
         rules=RuleEngine(min_confidence=settings.min_metric_confidence),
         prioritizer=CategoryImpactPrioritizer(),
+        impact_refiner=refiner,
+        smoothing_seconds=settings.pose_smoothing_seconds,
+        notes=(estimator_note,) if estimator_note and settings.pose_estimator != "mediapipe" else (),
+        comparator=ReferenceComparator(references, min_confidence=settings.min_metric_confidence,
+                                       similarity_scale_deg=settings.reference_similarity_scale_deg)
+        if references is not None and settings.reference_comparison_enabled else None,
     ), obs)
 
 
@@ -91,7 +130,7 @@ def validate_knowledge(knowledge: YamlKnowledgeBaseRepository, registry: MetricR
         unknown = {m for rule in kb.rules for m in rule.metric_ids} - registry.metric_ids(kb.stroke)
         if unknown:
             raise SystemExit(f"Base de conocimiento {kb.label} inválida: métricas desconocidas {sorted(unknown)}")
-        if not any(rule.validated for rule in kb.rules):
+        if not any(rule.is_validated for rule in kb.rules):
             logger.warning("base de conocimiento semilla SIN validar", extra={"kb": kb.label})
 
 
@@ -118,12 +157,14 @@ def build_loop(settings: Settings, obs: Instrumentation) -> WorkerLoop:
         config=BotoConfig(signature_version="s3v4", retries={"mode": "standard", "max_attempts": 5}),
     )
     store = S3ObjectStore(s3, settings.s3_bucket)
-    recognizer = build_recognizer(settings, ModelStore(store, settings.stroke_models_dir),
-                                  OpenCVVideoReader(max_seconds=settings.max_video_seconds))
+    models = ModelStore(store, settings.stroke_models_dir)
+    recognizer = build_recognizer(settings, models, OpenCVVideoReader(max_seconds=settings.max_video_seconds))
     processor = JobProcessor(
         repo=PostgresAnalysisRepository(settings.database_url.get_secret_value()),
         store=store,
-        pipeline=build_pipeline(settings, registry, knowledge, recognizer, obs),
+        pipeline=build_pipeline(settings, registry, knowledge, recognizer, obs,
+                                build_pose_estimator(settings, models),
+                                S3ReferenceStore(store, settings.reference_refresh_seconds)),
         max_attempts=settings.max_attempts,
         instrumentation=obs,
     )

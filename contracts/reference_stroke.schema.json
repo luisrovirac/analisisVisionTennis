@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tennis-vision/reference_stroke/1.0",
+  "title": "ReferenceStroke",
+  "description": "Golpe modelo con el que el worker compara (DTW sobre ángulos articulares) cada análisis del mismo golpe y vista de cámara. Se guarda en el bucket como references/<stroke>/<ref_id>.json y se lista en references/index.json. Lo crea scripts/register_reference.py. La comparación es informativa: no genera errores ni puntos fuertes.",
+  "type": "object",
+  "required": ["schema_version", "ref_id", "label", "stroke", "camera_view", "handedness", "source", "segment", "pose"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "ref_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"},
+    "label": {"type": "string", "description": "Nombre visible para el jugador (p. ej. 'Drive de perfil, entrenador del club')."},
+    "stroke": {"enum": ["forehand", "backhand", "serve", "volley"]},
+    "camera_view": {"enum": ["side", "front", "back"]},
+    "handedness": {"enum": ["right", "left"]},
+    "source": {"type": "string", "description": "Procedencia y permiso de uso del video (grabación propia, licencia...)."},
+    "segment": {
+      "type": "object",
+      "required": ["fps", "start_frame", "backswing_frame", "impact_frame", "end_frame"],
+      "properties": {
+        "fps": {"type": "number"},
+        "start_frame": {"type": "integer"},
+        "backswing_frame": {"type": "integer"},
+        "impact_frame": {"type": "integer"},
+        "end_frame": {"type": "integer"}
+      }
+    },
+    "pose": {"type": "object", "required": ["schema_version", "fps", "landmark_count", "frames"], "description": "Secuencia de pose con el formato de contracts/pose_sequence.schema.json."}
+  }
+}

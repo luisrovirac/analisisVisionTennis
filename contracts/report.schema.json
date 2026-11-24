@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "tennis-vision/report/1.0",
   "title": "Report",
-  "description": "Resultado de un análisis. El worker lo escribe en analyses.report y la API lo devuelve tal cual. Revisión 1.1 (aditiva): strengths, diagnosis, drill_plan, reliability, knowledge_status y findings[].validated son opcionales; schema_version sigue en 1.0 y los clientes deben ignorar campos desconocidos.",
+  "description": "Resultado de un análisis. El worker lo escribe en analyses.report y la API lo devuelve tal cual. Revisión 1.1 (aditiva): strengths, diagnosis, drill_plan, reliability, knowledge_status y findings[].validated son opcionales; schema_version sigue en 1.0 y los clientes deben ignorar campos desconocidos. Revisión 1.2 (aditiva): metrics[].landmarks y reference_comparison. Revisión 1.3 (aditiva): findings[].validation_status y strengths[].validation_status.",
   "type": "object",
   "required": [
     "schema_version",
@@ -80,6 +80,18 @@
             "type": "number",
             "minimum": 0,
             "maximum": 1
+          },
+          "landmarks": {
+            "description": "1.2: índices MediaPipe Pose (0-32) de los landmarks en los que se apoya la métrica; el visor de esqueleto los resalta.",
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 32
+            }
           }
         }
       }
@@ -137,6 +149,10 @@
           "validated": {
             "type": "boolean",
             "description": "1.1: la regla fue aprobada por un validador (false = provisional)."
+          },
+          "validation_status": {
+            "enum": ["heuristic_unvalidated", "expert_reviewed", "empirically_validated", null],
+            "description": "1.3: nivel de validación de la regla (KB 2.1)."
           }
         }
       }
@@ -260,6 +276,10 @@
           },
           "validated": {
             "type": "boolean"
+          },
+          "validation_status": {
+            "enum": ["heuristic_unvalidated", "expert_reviewed", "empirically_validated", null],
+            "description": "1.3: nivel de validación de la regla (KB 2.1)."
           }
         }
       }
@@ -424,6 +444,95 @@
         "total_rules": {
           "type": "integer",
           "minimum": 0
+        }
+      }
+    },
+    "reference_comparison": {
+      "description": "1.2: similitud INFORMATIVA (DTW sobre ángulos articulares) con golpes de referencia del mismo tipo y vista. No genera errores ni puntos fuertes. null/ausente = comparación desactivada.",
+      "type": [
+        "object",
+        "null"
+      ],
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "low_confidence",
+            "no_references"
+          ]
+        },
+        "references_used": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "ref_id",
+              "label"
+            ],
+            "properties": {
+              "ref_id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "overall_similarity": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "phase",
+              "status",
+              "confidence"
+            ],
+            "properties": {
+              "phase": {
+                "enum": [
+                  "preparation",
+                  "acceleration",
+                  "follow_through"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "low_confidence",
+                  "too_short"
+                ]
+              },
+              "similarity": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0,
+                "maximum": 100
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        },
+        "note": {
+          "type": "string"
         }
       }
     }

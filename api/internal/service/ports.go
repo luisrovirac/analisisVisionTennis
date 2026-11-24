@@ -26,6 +26,8 @@ type AnalysisRepository interface {
 
 type ObjectStore interface {
 	PresignPut(ctx context.Context, key string, ttl time.Duration) (string, error)
+	// PresignGet firma una URL de lectura temporal (reproducir el video, descargar la pose).
+	PresignGet(ctx context.Context, key string, ttl time.Duration) (string, error)
 	Stat(ctx context.Context, key string) (domain.ObjectInfo, error)
 	// Remove borra los objetos indicados; los que no existen no son un error (idempotente).
 	Remove(ctx context.Context, keys ...string) error

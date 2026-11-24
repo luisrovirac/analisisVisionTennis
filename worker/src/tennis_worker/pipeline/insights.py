@@ -32,7 +32,8 @@ def rank_strengths(strengths: Sequence[FiredRule], limit: int = MAX_STRENGTHS) -
     return [
         Strength(rule_id=s.rule.id, rank=rank, category=s.rule.category, title=s.rule.title,
                  why_it_matters=s.rule.why_it_matters, how_to_maintain=s.rule.how_to_maintain,
-                 evidence=s.evidence, confidence=round(s.confidence, 3), validated=s.rule.validated)
+                 evidence=s.evidence, confidence=round(s.confidence, 3), validated=s.rule.is_validated,
+                 validation_status=s.rule.status)
         for rank, s in enumerate(ranked, start=1)
     ]
 
@@ -104,7 +105,7 @@ def plan_drills(findings: Sequence[Finding], diagnosis: Diagnosis | None) -> Dri
 
 
 def assess_reliability(detection_rate: float, metrics: Mapping[str, MetricValue], min_confidence: float,
-                       warnings: Sequence[str]) -> Reliability:
+                       warnings: Sequence[str], notes: Sequence[str] = ()) -> Reliability:
     """Puntuación = detección de pose × confianza media de las métricas. Con avisos de calidad
     (vista, fps, métricas no medidas) el nivel nunca pasa de 'medium'."""
     confidences = [m.confidence for m in metrics.values()]
@@ -118,6 +119,7 @@ def assess_reliability(detection_rate: float, metrics: Mapping[str, MetricValue]
                f"Confianza media de las métricas: {mean_conf:.0%}."]
     if low:
         reasons.append("Medidas con poca fiabilidad (no se usan para conclusiones): " + ", ".join(low) + ".")
+    reasons.extend(notes)
     return Reliability(score=score, level=level, reasons=reasons)
 
 
@@ -129,4 +131,4 @@ def knowledge_status(kb: KnowledgeBase) -> KnowledgeStatus:
 
 
 def _validated(rule: Rule) -> bool:
-    return rule.validated
+    return rule.is_validated
